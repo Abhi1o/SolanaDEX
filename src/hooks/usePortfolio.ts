@@ -27,6 +27,67 @@ export function usePortfolio(options: UsePortfolioOptions = {}) {
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Fetch token metadata from Solana token registry
+  const fetchTokenMetadata = useCallback(async (mintAddress: string): Promise<Token> => {
+    try {
+      // Try to fetch from Jupiter token list API
+      const response = await fetch(`https://token.jup.ag/strict`);
+      if (response.ok) {
+        const tokens = await response.json();
+        const tokenInfo = tokens.find((t: any) => t.address === mintAddress);
+        
+        if (tokenInfo) {
+          return {
+            mint: mintAddress,
+            address: mintAddress,
+            symbol: tokenInfo.symbol || 'UNKNOWN',
+            name: tokenInfo.name || 'Unknown Token',
+            decimals: tokenInfo.decimals || 9,
+            logoURI: tokenInfo.logoURI,
+          };
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to fetch metadata for ${mintAddress}:`, error);
+    }
+
+    // Fallback to basic info
+    return {
+      mint: mintAddress,
+      address: mintAddress,
+      symbol: mintAddress.slice(0, 4) + '...' + mintAddress.slice(-4),
+      name: 'Unknown Token',
+      decimals: 9,
+    };
+  }, []);
+
+  // Fetch token prices from Jupiter
+  const fetchTokenPrices = useCallback(async (mints: string[]): Promise<Record<string, number>> => {
+    if (mints.length === 0) return {};
+
+    try {
+      const mintList = mints.join(',');
+      const response = await fetch(`https://price.jup.ag/v4/price?ids=${mintList}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        const prices: Record<string, number> = {};
+        
+        Object.entries(data.data || {}).forEach(([mint, priceData]: [string, any]) => {
+          if (priceData && typeof priceData.price === 'number') {
+            prices[mint] = priceData.price;
+          }
+        });
+        
+        return prices;
+      }
+    } catch (error) {
+      console.warn('Failed to fetch token prices:', error);
+    }
+
+    return {};
+  }, []);
+
   // Fetch portfolio data
   const fetchPortfolio = useCallback(async () => {
     if (!connection || !address || !isConnected) {
@@ -38,42 +99,69 @@ export function usePortfolio(options: UsePortfolioOptions = {}) {
     setError(null);
 
     try {
+      console.log('Fetching portfolio for:', address);
+      console.log('Token accounts:', tokenAccounts.length);
+
       // Calculate total SOL value
       const totalSolValue = solBalance;
 
+      // Fetch token metadata and prices
+      const mints = tokenAccounts.map(account => account.mint.toString());
+      const [tokenMetadataList, prices] = await Promise.all([
+        Promise.all(mints.map(mint => fetchTokenMetadata(mint))),
+        fetchTokenPrices([...mints, 'So11111111111111111111111111111111111111112']), // Include SOL
+      ]);
+
       // Map token accounts to portfolio tokens
-      const tokens = tokenAccounts.map((account) => ({
-        token: {
-          mint: account.mint.toString(),
-          address: account.mint.toString(),
-          symbol: 'UNKNOWN', // Would need token registry lookup
-          name: 'Unknown Token',
-          decimals: account.decimals,
-        } as Token,
-        balance: account.amount,
-        tokenAccount: account.address,
-        value: BigInt(0), // Would need price data
-        valueUsd: undefined,
-      }));
+      const tokens = tokenAccounts.map((account, index) => {
+        const token = tokenMetadataList[index];
+        const mint = account.mint.toString();
+        const price = prices[mint] || 0;
+        const balance = account.amount;
+        const balanceNumber = Number(balance) / Math.pow(10, account.decimals);
+        const valueUsd = price * balanceNumber;
+        const valueSol = price > 0 ? BigInt(Math.floor((valueUsd / (prices['So11111111111111111111111111111111111111112'] || 1)) * 1e9)) : BigInt(0);
+
+        return {
+          token,
+          balance,
+          tokenAccount: account.address,
+          value: valueSol,
+          valueUsd,
+          priceChange24h: undefined, // Would need historical price data
+        };
+      });
+
+      // Calculate SOL value in USD
+      const solPrice = prices['So11111111111111111111111111111111111111112'] || 0;
+      const solBalanceNumber = Number(totalSolValue) / 1e9;
+      const solValueUsd = solPrice * solBalanceNumber;
 
       // TODO: Fetch liquidity positions from AMM programs
       const liquidityPositions: UserPortfolio['liquidityPositions'] = [];
 
       // Calculate total portfolio value
       const totalValue = totalSolValue + tokens.reduce((sum, t) => sum + t.value, BigInt(0));
+      const totalValueUsd = solValueUsd + tokens.reduce((sum, t) => sum + (t.valueUsd || 0), 0);
 
       const portfolioData: UserPortfolio = {
         totalValue,
-        totalValueUsd: undefined, // Would need price data
+        totalValueUsd,
         solBalance: totalSolValue,
-        solValueUsd: undefined,
+        solValueUsd,
         tokens,
         liquidityPositions,
         lastUpdated: Date.now(),
       };
 
+      console.log('Portfolio data:', {
+        totalValue: totalValue.toString(),
+        totalValueUsd,
+        tokenCount: tokens.length,
+      });
+
       setPortfolio(portfolioData);
-      addHistoricalData(Date.now(), totalValue);
+      addHistoricalData(Date.now(), totalValue, totalValueUsd);
     } catch (err) {
       console.error('Failed to fetch portfolio:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch portfolio');
@@ -86,6 +174,8 @@ export function usePortfolio(options: UsePortfolioOptions = {}) {
     isConnected,
     solBalance,
     tokenAccounts,
+    fetchTokenMetadata,
+    fetchTokenPrices,
     setPortfolio,
     setLoading,
     setError,

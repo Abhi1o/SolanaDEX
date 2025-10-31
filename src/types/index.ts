@@ -99,14 +99,14 @@ export interface WalletState {
   address: string | null; // Base58 string representation
   isConnected: boolean;
   isConnecting: boolean;
-  
+
   // Solana network info
   cluster: SolanaCluster;
-  
+
   // Balances
   solBalance: bigint; // Native SOL balance in lamports
   tokenAccounts: SolanaTokenAccount[];
-  
+
   // Wallet metadata
   walletType: WalletType | null;
   walletName: string | null;
@@ -120,32 +120,32 @@ export interface Pool {
   // Pool identification
   id: string; // Pool account address
   programId: string; // AMM program ID
-  
+
   // Token pair
   tokenA: Token;
   tokenB: Token;
-  
+
   // Pool accounts
   tokenAAccount: PublicKey;
   tokenBAccount: PublicKey;
   lpTokenMint: PublicKey;
-  
+
   // Reserves and liquidity
   reserveA: bigint;
   reserveB: bigint;
   totalLiquidity: bigint;
   lpTokenSupply: bigint;
-  
+
   // Pool metrics
   volume24h: bigint;
   fees24h: bigint;
   feeRate: number; // Fee rate as percentage (e.g., 0.25 for 0.25%)
-  
+
   // Pool state
   isActive: boolean;
   createdAt: number;
   lastUpdated: number;
-  
+
   // AMM-specific data
   ammType: 'constant_product' | 'stable' | 'concentrated';
   curveType?: string;
@@ -159,29 +159,29 @@ export interface Transaction {
   // Transaction identification
   signature: string; // Solana transaction signature
   hash: string; // Same as signature for compatibility
-  
+
   // Transaction metadata
   type: TransactionType;
   status: TransactionStatus;
   timestamp: number;
   blockTime?: number;
   slot?: number;
-  
+
   // Transaction details
   tokenIn?: Token;
   tokenOut?: Token;
   amountIn?: bigint;
   amountOut?: bigint;
-  
+
   // Solana-specific fields
   feePayer: string; // Public key of fee payer
   solFee: bigint; // SOL fee paid in lamports
   computeUnitsUsed?: number;
-  
+
   // Error information
   error?: string;
   logs?: string[];
-  
+
   // Pool information (for AMM transactions)
   poolId?: string;
   priceImpact?: number;
@@ -197,23 +197,23 @@ export interface SwapQuote {
   inputAmount: bigint;
   outputAmount: bigint;
   minimumReceived: bigint;
-  
+
   // Price information
   priceImpact: number;
   exchangeRate: number;
-  
+
   // Route information
   route: Pool[];
   routeType: 'direct' | 'multi_hop';
-  
+
   // Solana-specific fields
   jupiterQuote?: JupiterQuote; // Jupiter aggregator quote
   slippageTolerance: number;
-  
+
   // Transaction estimates
   estimatedSolFee: bigint;
   estimatedComputeUnits: number;
-  
+
   // Timing
   validUntil: number; // Timestamp when quote expires
   refreshInterval: number; // Milliseconds between quote updates
@@ -256,11 +256,11 @@ export interface UserPortfolio {
   // Portfolio overview
   totalValue: bigint; // Total value in lamports (SOL equivalent)
   totalValueUsd?: number; // USD value if price data available
-  
+
   // SOL balance
   solBalance: bigint;
   solValueUsd?: number;
-  
+
   // SPL Token holdings
   tokens: Array<{
     token: Token;
@@ -270,7 +270,7 @@ export interface UserPortfolio {
     valueUsd?: number;
     priceChange24h?: number;
   }>;
-  
+
   // Liquidity positions
   liquidityPositions: Array<{
     pool: Pool;
@@ -283,7 +283,7 @@ export interface UserPortfolio {
     valueUsd?: number;
     feesEarned24h?: bigint;
   }>;
-  
+
   // Portfolio performance
   performance?: {
     change24h: bigint;
@@ -291,7 +291,7 @@ export interface UserPortfolio {
     change7d: bigint;
     change7dPercent: number;
   };
-  
+
   // Last update timestamp
   lastUpdated: number;
 }

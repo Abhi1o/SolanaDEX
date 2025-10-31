@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useWallet } from '@/hooks/useWallet';
 import { usePortfolio } from '@/hooks/usePortfolio';
+import { useTokenAccounts } from '@/hooks/useTokenAccounts';
 import { usePortfolioStore } from '@/stores/portfolioStore';
 import { useTransactionStore } from '@/stores/transactionStore';
 import {
@@ -33,6 +34,11 @@ export function UnifiedAccountDashboard() {
 
   const { portfolio, loading } = usePortfolioStore();
   const { fetchPortfolio } = usePortfolio();
+  const { fetchTokenAccounts, loading: tokenAccountsLoading } = useTokenAccounts({
+    enabled: true,
+    autoRefresh: true,
+    refreshInterval: 30000,
+  });
   const { transactions } = useTransactionStore();
 
   const [copied, setCopied] = useState(false);
@@ -156,11 +162,14 @@ export function UnifiedAccountDashboard() {
               <h2 className="text-2xl font-semibold text-white">Wallet</h2>
               <MotionScale>
                 <button
-                  onClick={() => fetchPortfolio()}
-                  disabled={loading}
+                  onClick={() => {
+                    fetchTokenAccounts();
+                    fetchPortfolio();
+                  }}
+                  disabled={loading || tokenAccountsLoading}
                   className="p-2 backdrop-blur-xl bg-white/10 rounded-xl hover:bg-white/20 transition-all border border-white/10"
                 >
-                  <ArrowPathIcon className={`w-5 h-5 text-white ${loading ? 'animate-spin' : ''}`} />
+                  <ArrowPathIcon className={`w-5 h-5 text-white ${(loading || tokenAccountsLoading) ? 'animate-spin' : ''}`} />
                 </button>
               </MotionScale>
             </div>
@@ -323,57 +332,148 @@ export function UnifiedAccountDashboard() {
           {activeTab === 'tokens' && (
             <MotionReveal direction="up">
               <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 overflow-hidden">
-                <div className="p-6 border-b border-white/10">
-                  <h3 className="text-xl font-semibold text-white">Token Holdings</h3>
+                <div className="p-6 border-b border-white/10 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">Token Holdings</h3>
+                    <p className="text-sm text-gray-400 mt-1">
+                      {portfolio ? `${portfolio.tokens.length + 1} assets` : 'Loading...'}
+                    </p>
+                  </div>
+                  {(loading || tokenAccountsLoading) && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-400">
+                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                      <span>Loading...</span>
+                    </div>
+                  )}
                 </div>
                 <div className="overflow-x-auto">
-                  {!portfolio || portfolio.tokens.length === 0 ? (
-                    <div className="p-12 text-center text-gray-400">
-                      No tokens found
+                  {!portfolio || (portfolio.tokens.length === 0 && !loading && !tokenAccountsLoading) ? (
+                    <div className="p-12 text-center">
+                      <ChartBarIcon className="w-16 h-16 mx-auto text-gray-600 mb-4" />
+                      <div className="text-gray-400 mb-2">No tokens found</div>
+                      <p className="text-sm text-gray-500">
+                        Your SPL token holdings will appear here
+                      </p>
+                      <button
+                        onClick={() => {
+                          fetchTokenAccounts();
+                          fetchPortfolio();
+                        }}
+                        className="mt-4 px-4 py-2 backdrop-blur-xl bg-blue-500/20 border border-blue-500/50 rounded-xl text-blue-300 hover:bg-blue-500/30 transition-all"
+                      >
+                        Refresh Holdings
+                      </button>
                     </div>
                   ) : (
                     <table className="w-full">
                       <thead className="border-b border-white/10">
                         <tr>
                           <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase">Asset</th>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
                           <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase">Balance</th>
-                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase">Value</th>
-                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase">24h</th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase">Value (USD)</th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase">Value (SOL)</th>
+                          <th className="px-6 py-4 text-center text-xs font-medium text-gray-400 uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/10">
+                        {/* SOL Row */}
                         <tr className="hover:bg-white/5 transition-colors">
                           <td className="px-6 py-4">
-                            <div className="text-sm font-medium text-white">SOL</div>
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                                <span className="text-white font-bold text-xs">◎</span>
+                              </div>
+                              <div className="text-sm font-semibold text-white">SOL</div>
+                            </div>
                           </td>
-                          <td className="px-6 py-4 text-right text-sm text-white">
-                            {formatSolAmount(portfolio.solBalance)}
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-300">Solana</div>
                           </td>
-                          <td className="px-6 py-4 text-right text-sm text-white">
-                            {formatUsd(portfolio.solValueUsd)}
+                          <td className="px-6 py-4 text-right">
+                            <div className="text-sm font-medium text-white">
+                              {portfolio ? formatSolAmount(portfolio.solBalance) : '0.00'}
+                            </div>
                           </td>
-                          <td className="px-6 py-4 text-right text-sm text-gray-400">-</td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="text-sm font-medium text-white">
+                              ${portfolio?.solValueUsd ? formatUsd(portfolio.solValueUsd) : '0.00'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="text-sm text-gray-400">-</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-center space-x-2">
+                              <a
+                                href={`https://solscan.io/account/${address}?cluster=${network}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 text-gray-400 hover:text-white transition-colors"
+                                title="View on explorer"
+                              >
+                                <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                              </a>
+                            </div>
+                          </td>
                         </tr>
-                        {portfolio.tokens.map((token, index) => (
+                        
+                        {/* Token Rows */}
+                        {portfolio?.tokens.map((token, index) => (
                           <tr key={index} className="hover:bg-white/5 transition-colors">
                             <td className="px-6 py-4">
-                              <div className="text-sm font-medium text-white">{token.token.symbol}</div>
+                              <div className="flex items-center space-x-3">
+                                {token.token.logoURI ? (
+                                  <img
+                                    src={token.token.logoURI}
+                                    alt={token.token.symbol}
+                                    className="w-8 h-8 rounded-full"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+                                    <span className="text-white font-bold text-xs">
+                                      {token.token.symbol.charAt(0)}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="text-sm font-semibold text-white">{token.token.symbol}</div>
+                              </div>
                             </td>
-                            <td className="px-6 py-4 text-right text-sm text-white">
-                              {formatTokenAmount(token.balance, token.token.decimals)}
+                            <td className="px-6 py-4">
+                              <div className="text-sm text-gray-300 max-w-xs truncate">
+                                {token.token.name}
+                              </div>
                             </td>
-                            <td className="px-6 py-4 text-right text-sm text-white">
-                              {formatUsd(token.valueUsd)}
+                            <td className="px-6 py-4 text-right">
+                              <div className="text-sm font-medium text-white">
+                                {formatTokenAmount(token.balance, token.token.decimals)}
+                              </div>
                             </td>
-                            <td className="px-6 py-4 text-right text-sm">
-                              {token.priceChange24h !== undefined ? (
-                                <span className={token.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400'}>
-                                  {token.priceChange24h >= 0 ? '+' : ''}
-                                  {token.priceChange24h.toFixed(2)}%
-                                </span>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
+                            <td className="px-6 py-4 text-right">
+                              <div className="text-sm font-medium text-white">
+                                ${token.valueUsd ? formatUsd(token.valueUsd) : '0.00'}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="text-sm text-gray-400">
+                                {formatSolAmount(token.value)}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center justify-center space-x-2">
+                                <a
+                                  href={`https://solscan.io/token/${token.token.mint}?cluster=${network}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1 text-gray-400 hover:text-white transition-colors"
+                                  title="View token on explorer"
+                                >
+                                  <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                </a>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -381,6 +481,25 @@ export function UnifiedAccountDashboard() {
                     </table>
                   )}
                 </div>
+                
+                {/* Summary Footer */}
+                {portfolio && portfolio.tokens.length > 0 && (
+                  <div className="p-6 border-t border-white/10 bg-white/5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-gray-400">Total Portfolio Value</div>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-white">
+                            ${portfolio.totalValueUsd ? formatUsd(portfolio.totalValueUsd) : '0.00'}
+                          </div>
+                          <div className="text-sm text-gray-400">
+                            {formatSolAmount(portfolio.totalValue)} SOL
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </MotionReveal>
           )}

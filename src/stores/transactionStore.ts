@@ -48,7 +48,7 @@ export const useTransactionStore = create<TransactionStore>()(
       transactions: [],
       filters: initialFilters,
       currentPage: 1,
-      pageSize: 20,
+      pageSize: 10,
       selectedTransaction: null,
       
       addTransaction: (transaction) => set((state) => ({

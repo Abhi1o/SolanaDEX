@@ -1,13 +1,41 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { TransactionList } from '@/components/transactions';
 import { MotionFadeIn, MotionReveal, MotionStagger } from '@/components/animations';
 import { AnimatedStat } from '@/components/ui/AnimatedStat';
 import { motion } from 'framer-motion';
 import { CheckCircleIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline';
+import { useTransactionStore } from '@/stores/transactionStore';
+import { TransactionStatus, TransactionType } from '@/types';
 
 export default function TransactionsPage() {
+  const { transactions } = useTransactionStore();
+  
+  // Calculate statistics from actual transactions
+  const stats = useMemo(() => {
+    const total = transactions.length;
+    const successful = transactions.filter(tx => tx.status === TransactionStatus.CONFIRMED).length;
+    const successRate = total > 0 ? (successful / total) * 100 : 0;
+    
+    // Calculate total volume (sum of all swap amounts in USD - simplified)
+    const totalVolume = transactions
+      .filter(tx => tx.type === TransactionType.SWAP && tx.amountOut)
+      .reduce((sum, tx) => {
+        // Rough estimate: assume 1 token = $1 for display purposes
+        // In production, you'd fetch actual prices
+        const amount = Number(tx.amountOut || 0) / Math.pow(10, tx.tokenOut?.decimals || 9);
+        return sum + amount;
+      }, 0);
+    
+    return {
+      total,
+      successRate: successRate.toFixed(1),
+      totalVolume: totalVolume > 1000 
+        ? `$${(totalVolume / 1000).toFixed(1)}K`
+        : `$${totalVolume.toFixed(2)}`
+    };
+  }, [transactions]);
   return (
     <div className="relative bg-black text-white min-h-[calc(100vh-4rem)] overflow-hidden">
       {/* Animated Background Gradients */}
@@ -45,14 +73,14 @@ export default function TransactionsPage() {
         <MotionStagger staggerDelay={0.1}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             <AnimatedStat
-              value="156"
+              value={stats.total.toString()}
               label="Total Transactions"
               gradient="from-blue-400 to-cyan-400"
               icon={<CheckCircleIcon className="w-full h-full text-white" />}
               delay={0.2}
             />
             <AnimatedStat
-              value="98.7%"
+              value={stats.successRate}
               label="Success Rate"
               gradient="from-green-400 to-emerald-400"
               icon={<CheckCircleIcon className="w-full h-full text-white" />}
@@ -60,7 +88,7 @@ export default function TransactionsPage() {
               suffix="%"
             />
             <AnimatedStat
-              value="$12.4K"
+              value={stats.totalVolume}
               label="Total Volume"
               gradient="from-purple-400 to-pink-400"
               icon={<CurrencyDollarIcon className="w-full h-full text-white" />}

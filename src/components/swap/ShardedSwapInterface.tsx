@@ -41,12 +41,18 @@ export function ShardedSwapInterface() {
   const [errorMessage, setErrorMessage] = useState("");
   const [showSlippageSettings, setShowSlippageSettings] = useState(false);
   const [slippageTolerance, setSlippageTolerance] = useState(5.0); // Default 5% - accounts for devnet pool changes
+  const [highImpactConfirmed, setHighImpactConfirmed] = useState(false);
+  const [quoteAge, setQuoteAge] = useState(0);
+  const [lastQuoteTime, setLastQuoteTime] = useState<number>(0);
 
   // Get quote when inputs change
   useEffect(() => {
     const amount = parseFloat(inputAmount);
     if (!amount || amount <= 0) {
       setQuote(null);
+      setHighImpactConfirmed(false);
+      setQuoteAge(0);
+      setLastQuoteTime(0);
       return;
     }
 
@@ -55,10 +61,47 @@ export function ShardedSwapInterface() {
       const q = await getQuote(inputToken, outputToken, amount);
       setQuote(q);
       setQuoteLoading(false);
+      setLastQuoteTime(Date.now());
+      setQuoteAge(0);
+      // Reset confirmation when quote changes
+      setHighImpactConfirmed(false);
     }, 500);
 
     return () => clearTimeout(debounce);
   }, [inputToken, outputToken, inputAmount, getQuote]);
+
+  // Auto-refresh quote every 10 seconds to keep reserves reasonably fresh
+  // The executeSwap function will fetch fresh reserves anyway before submitting
+  useEffect(() => {
+    const amount = parseFloat(inputAmount);
+    if (!amount || amount <= 0 || !quote) {
+      return;
+    }
+
+    const refreshInterval = setInterval(async () => {
+      console.log('🔄 Auto-refreshing quote...');
+      const q = await getQuote(inputToken, outputToken, amount);
+      setQuote(q);
+      setLastQuoteTime(Date.now());
+      setQuoteAge(0);
+      // Reset confirmation when quote changes
+      setHighImpactConfirmed(false);
+    }, 10000); // Refresh every 10 seconds (less aggressive)
+
+    return () => clearInterval(refreshInterval);
+  }, [inputToken, outputToken, inputAmount, quote, getQuote]);
+
+  // Track quote age
+  useEffect(() => {
+    if (!lastQuoteTime) return;
+
+    const ageInterval = setInterval(() => {
+      const age = Date.now() - lastQuoteTime;
+      setQuoteAge(age);
+    }, 100); // Update age every 100ms
+
+    return () => clearInterval(ageInterval);
+  }, [lastQuoteTime]);
 
   const handleSwap = async () => {
     if (!quote) return;
@@ -269,44 +312,141 @@ export function ShardedSwapInterface() {
             )}
 
             {quote && !quoteLoading && (
-              <div className="backdrop-blur-xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 rounded-2xl p-4 mb-6 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Price Impact:</span>
-                  <span
-                    className={`font-medium ${
-                      quote.priceImpact > 5 ? "text-red-400" : "text-green-400"
-                    }`}
-                  >
-                    {quote.priceImpact.toFixed(2)}%
-                  </span>
+              <>
+                <div className="backdrop-blur-xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 rounded-2xl p-4 mb-4 space-y-2">
+                  {/* Quote Freshness Indicator */}
+                  <div className="flex justify-between text-xs mb-2 pb-2 border-b border-white/10">
+                    <span className="text-gray-400 flex items-center gap-1">
+                      <span className={`inline-block w-2 h-2 rounded-full ${quoteAge < 1000 ? 'bg-green-400 animate-pulse' : quoteAge < 2000 ? 'bg-yellow-400' : 'bg-orange-400'}`}></span>
+                      Quote Age:
+                    </span>
+                    <span className="font-medium text-gray-300">
+                      {(quoteAge / 1000).toFixed(1)}s
+                      {quoteAge < 1000 && <span className="text-green-400 ml-1">• Fresh</span>}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Price Impact:</span>
+                    <span
+                      className={`font-medium ${
+                        quote.priceImpact > 5
+                          ? "text-red-400"
+                          : quote.priceImpact > 1
+                          ? "text-yellow-400"
+                          : "text-green-400"
+                      }`}
+                    >
+                      {quote.priceImpact.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Fee (0.3%):</span>
+                    <span className="font-medium text-white">
+                      {quote.totalFee.toFixed(6)} {inputToken}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Using Shard:</span>
+                    <span className="font-medium text-white">
+                      #{quote.route[0].shardNumber}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Rate:</span>
+                    <span className="font-medium text-white">
+                      1 {inputToken} ={" "}
+                      {(quote.estimatedOutput / quote.inputAmount).toFixed(6)}{" "}
+                      {outputToken}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Fee (0.3%):</span>
-                  <span className="font-medium text-white">
-                    {quote.totalFee.toFixed(6)} {inputToken}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Using Shard:</span>
-                  <span className="font-medium text-white">
-                    #{quote.route[0].shardNumber}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">Rate:</span>
-                  <span className="font-medium text-white">
-                    1 {inputToken} ={" "}
-                    {(quote.estimatedOutput / quote.inputAmount).toFixed(6)}{" "}
-                    {outputToken}
-                  </span>
-                </div>
-              </div>
+
+                {/* Price Impact Warning - Yellow for > 1% */}
+                {quote.priceImpact > 1 && quote.priceImpact <= 5 && (
+                  <div className="backdrop-blur-xl bg-yellow-500/20 border border-yellow-500/50 rounded-2xl p-4 mb-4">
+                    <div className="flex items-start gap-3">
+                      <svg
+                        className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5"
+                        fill="none"
+                        strokeWidth="2"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        />
+                      </svg>
+                      <div>
+                        <h4 className="text-yellow-300 font-semibold text-sm mb-1">
+                          Moderate Price Impact
+                        </h4>
+                        <p className="text-yellow-200/80 text-xs">
+                          This trade will move the market price by{" "}
+                          {quote.priceImpact.toFixed(2)}%. You may receive less
+                          favorable rates than expected.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Price Impact Warning - Red for > 5% */}
+                {quote.priceImpact > 5 && (
+                  <div className="backdrop-blur-xl bg-red-500/20 border border-red-500/50 rounded-2xl p-4 mb-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <svg
+                        className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5"
+                        fill="none"
+                        strokeWidth="2"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                        />
+                      </svg>
+                      <div>
+                        <h4 className="text-red-300 font-semibold text-sm mb-1">
+                          High Price Impact Warning
+                        </h4>
+                        <p className="text-red-200/80 text-xs mb-2">
+                          This trade will significantly move the market price by{" "}
+                          {quote.priceImpact.toFixed(2)}%. You will receive much
+                          less favorable rates. Consider splitting this trade into
+                          smaller amounts.
+                        </p>
+                      </div>
+                    </div>
+                    <label className="flex items-start gap-2 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={highImpactConfirmed}
+                        onChange={(e) => setHighImpactConfirmed(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded border-red-400 bg-red-500/20 text-red-500 focus:ring-2 focus:ring-red-500/50 cursor-pointer"
+                      />
+                      <span className="text-red-200 text-xs font-medium group-hover:text-red-100 transition-colors">
+                        I understand the risks and want to proceed with this high
+                        impact trade
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Swap Button */}
             <button
               onClick={handleSwap}
-              disabled={!quote || loading || quoteLoading}
+              disabled={
+                !quote ||
+                loading ||
+                quoteLoading ||
+                (quote && quote.priceImpact > 5 && !highImpactConfirmed)
+              }
               className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-2xl transition-all shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100"
             >
               {loading ? (
@@ -332,6 +472,8 @@ export function ShardedSwapInterface() {
                   </svg>
                   Swapping...
                 </span>
+              ) : quote && quote.priceImpact > 5 && !highImpactConfirmed ? (
+                "Confirm High Impact Warning"
               ) : quote ? (
                 "Swap"
               ) : (
