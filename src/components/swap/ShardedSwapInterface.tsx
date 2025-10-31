@@ -73,9 +73,9 @@ export function ShardedSwapInterface() {
   const pairs = getTradingPairs();
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       {/* Left Side - Swap Card */}
-      <div className="lg:col-span-2">
+      <div className="lg:col-span-3">
         <div className="backdrop-blur-xl bg-white/5 rounded-3xl p-6 sm:p-8 border border-white/10 hover:border-white/20 transition-all shadow-2xl">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-white">Swap Tokens</h2>
@@ -269,7 +269,7 @@ export function ShardedSwapInterface() {
       </div>
 
       {/* Right Side - Info Card */}
-      <div className="lg:col-span-1">
+      <div className="lg:col-span-2">
         <div className="backdrop-blur-xl bg-white/5 rounded-3xl p-6 border border-white/10 shadow-2xl sticky top-24">
           {/* Available Shards */}
           {pools.length > 0 && (

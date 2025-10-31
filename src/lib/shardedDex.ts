@@ -240,6 +240,57 @@ class ShardedDexService {
       const amountIn = BigInt(Math.floor(quote.inputAmount * Math.pow(10, inputTokenConfig.decimals)));
       const minimumAmountOut = BigInt(Math.floor(minOutput * Math.pow(10, outputTokenConfig.decimals)));
 
+      // Check user's token balance before attempting swap
+      try {
+        const { getAssociatedTokenAddress, getAccount } = await import('@solana/spl-token');
+        const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+
+        const userInputATA = await getAssociatedTokenAddress(
+          new PublicKey(inputTokenConfig.mint),
+          wallet,
+          false,
+          TOKEN_PROGRAM_ID
+        );
+
+        console.log(`  Checking balance for ${inputTokenConfig.symbol}...`);
+
+        const accountInfo = await getAccount(
+          this.connection,
+          userInputATA,
+          'confirmed',
+          TOKEN_PROGRAM_ID
+        );
+
+        const userBalance = Number(accountInfo.amount) / Math.pow(10, inputTokenConfig.decimals);
+        console.log(`  Current balance: ${userBalance} ${inputTokenConfig.symbol}`);
+
+        if (userBalance < quote.inputAmount) {
+          throw new Error(
+            `Insufficient ${inputTokenConfig.symbol} balance.\n\n` +
+            `Required: ${quote.inputAmount} ${inputTokenConfig.symbol}\n` +
+            `Available: ${userBalance} ${inputTokenConfig.symbol}\n\n` +
+            `Please get devnet tokens from:\n` +
+            `• Solana Faucet: https://faucet.solana.com/\n` +
+            `• SPL Token Faucet for test tokens`
+          );
+        }
+
+        console.log(`  ✓ Balance check passed`);
+      } catch (err: any) {
+        if (err.message && err.message.includes('Insufficient')) {
+          throw err;
+        }
+        // Token account doesn't exist
+        throw new Error(
+          `${inputTokenConfig.symbol} token account not found.\n\n` +
+          `You need to:\n` +
+          `1. Get devnet SOL from https://faucet.solana.com/\n` +
+          `2. Create ${inputTokenConfig.symbol} token account\n` +
+          `3. Mint/receive test ${inputTokenConfig.symbol} tokens\n\n` +
+          `Current wallet: ${wallet.toBase58()}`
+        );
+      }
+
       // Import swap instruction builder
       const { buildSimpleSwapTransaction } = await import('./swapInstructions');
 
