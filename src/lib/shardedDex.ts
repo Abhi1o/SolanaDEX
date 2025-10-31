@@ -1,0 +1,324 @@
+/**
+ * Sharded DEX Integration
+ * Smart routing across multiple pool shards for optimal pricing
+ */
+
+import { Connection, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
+import dexConfig from '../config/dex-config.json';
+
+export interface ShardedPool {
+  poolAddress: string;
+  tokenA: string;
+  tokenB: string;
+  tokenASymbol: string;
+  tokenBSymbol: string;
+  liquidityA: string;
+  liquidityB: string;
+  shardNumber: number;
+  authority: string;
+  poolTokenMint: string;
+  feeAccount: string;
+  tokenAccountA: string;
+  tokenAccountB: string;
+  deployedAt: string;
+}
+
+export interface TokenConfig {
+  symbol: string;
+  name: string;
+  mint: string;
+  decimals: number;
+}
+
+export interface SwapQuote {
+  inputToken: string;
+  outputToken: string;
+  inputAmount: number;
+  estimatedOutput: number;
+  priceImpact: number;
+  route: ShardRoute[];
+  totalFee: number;
+}
+
+export interface ShardRoute {
+  poolAddress: string;
+  shardNumber: number;
+  inputAmount: number;
+  outputAmount: number;
+  price: number;
+}
+
+class ShardedDexService {
+  private connection: Connection;
+  private programId: PublicKey;
+
+  constructor() {
+    this.connection = new Connection(dexConfig.rpcUrl, 'confirmed');
+    this.programId = new PublicKey(dexConfig.programId);
+  }
+
+  /**
+   * Get all tokens supported by the DEX
+   */
+  getTokens(): TokenConfig[] {
+    return dexConfig.tokens;
+  }
+
+  /**
+   * Get all pools for a specific trading pair
+   */
+  getPoolsForPair(tokenA: string, tokenB: string): ShardedPool[] {
+    return dexConfig.pools.filter(pool =>
+      (pool.tokenA === tokenA && pool.tokenB === tokenB) ||
+      (pool.tokenA === tokenB && pool.tokenB === tokenA)
+    ).sort((a, b) => a.shardNumber - b.shardNumber);
+  }
+
+  /**
+   * Get all shards for a trading pair by symbols
+   */
+  getShardsBySymbol(symbolA: string, symbolB: string): ShardedPool[] {
+    return dexConfig.pools.filter(pool =>
+      (pool.tokenASymbol === symbolA && pool.tokenBSymbol === symbolB) ||
+      (pool.tokenASymbol === symbolB && pool.tokenBSymbol === symbolA)
+    ).sort((a, b) => a.shardNumber - b.shardNumber);
+  }
+
+  /**
+   * Calculate constant product AMM price
+   * Price = reserveOut / reserveIn
+   */
+  private calculateAmmPrice(reserveIn: bigint, reserveOut: bigint): number {
+    return Number(reserveOut) / Number(reserveIn);
+  }
+
+  /**
+   * Calculate output amount using x*y=k formula with 0.3% fee
+   * amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
+   */
+  private calculateSwapOutput(
+    amountIn: bigint,
+    reserveIn: bigint,
+    reserveOut: bigint
+  ): bigint {
+    const amountInWithFee = amountIn * 997n;
+    const numerator = amountInWithFee * reserveOut;
+    const denominator = reserveIn * 1000n + amountInWithFee;
+    return numerator / denominator;
+  }
+
+  /**
+   * Calculate price impact percentage
+   */
+  private calculatePriceImpact(
+    amountIn: bigint,
+    amountOut: bigint,
+    reserveIn: bigint,
+    reserveOut: bigint
+  ): number {
+    const spotPrice = Number(reserveOut) / Number(reserveIn);
+    const executionPrice = Number(amountOut) / Number(amountIn);
+    return Math.abs((executionPrice - spotPrice) / spotPrice) * 100;
+  }
+
+  /**
+   * Get optimal quote across all shards using smart routing
+   */
+  async getQuote(
+    inputTokenSymbol: string,
+    outputTokenSymbol: string,
+    inputAmount: number
+  ): Promise<SwapQuote> {
+    const shards = this.getShardsBySymbol(inputTokenSymbol, outputTokenSymbol);
+
+    if (shards.length === 0) {
+      throw new Error(`No pools found for ${inputTokenSymbol}/${outputTokenSymbol}`);
+    }
+
+    // Determine if we're swapping A->B or B->A
+    const isForward = shards[0].tokenASymbol === inputTokenSymbol;
+
+    // Get token decimals
+    const inputToken = dexConfig.tokens.find(t => t.symbol === inputTokenSymbol);
+    const outputToken = dexConfig.tokens.find(t => t.symbol === outputTokenSymbol);
+
+    if (!inputToken || !outputToken) {
+      throw new Error('Token configuration not found');
+    }
+
+    // Convert to base units
+    const inputAmountBase = BigInt(Math.floor(inputAmount * Math.pow(10, inputToken.decimals)));
+
+    // Simple strategy: Try each shard and pick the best single-shard route
+    // TODO: Implement multi-shard split routing for larger trades
+    let bestRoute: ShardRoute | null = null;
+    let bestOutput = 0n;
+    let bestPriceImpact = Infinity;
+
+    for (const shard of shards) {
+      const reserveIn = BigInt(isForward ? shard.liquidityA : shard.liquidityB);
+      const reserveOut = BigInt(isForward ? shard.liquidityB : shard.liquidityA);
+
+      const outputAmount = this.calculateSwapOutput(
+        inputAmountBase,
+        reserveIn * BigInt(Math.pow(10, inputToken.decimals)),
+        reserveOut * BigInt(Math.pow(10, outputToken.decimals))
+      );
+
+      const priceImpact = this.calculatePriceImpact(
+        inputAmountBase,
+        outputAmount,
+        reserveIn * BigInt(Math.pow(10, inputToken.decimals)),
+        reserveOut * BigInt(Math.pow(10, outputToken.decimals))
+      );
+
+      if (outputAmount > bestOutput || (outputAmount === bestOutput && priceImpact < bestPriceImpact)) {
+        bestOutput = outputAmount;
+        bestPriceImpact = priceImpact;
+        bestRoute = {
+          poolAddress: shard.poolAddress,
+          shardNumber: shard.shardNumber,
+          inputAmount: inputAmount,
+          outputAmount: Number(outputAmount) / Math.pow(10, outputToken.decimals),
+          price: Number(outputAmount) / Number(inputAmountBase)
+        };
+      }
+    }
+
+    if (!bestRoute) {
+      throw new Error('Unable to calculate route');
+    }
+
+    return {
+      inputToken: inputToken.mint,
+      outputToken: outputToken.mint,
+      inputAmount,
+      estimatedOutput: bestRoute.outputAmount,
+      priceImpact: bestPriceImpact,
+      route: [bestRoute],
+      totalFee: inputAmount * 0.003 // 0.3% fee
+    };
+  }
+
+  /**
+   * Execute swap on the sharded DEX
+   */
+  async executeSwap(
+    wallet: PublicKey,
+    quote: SwapQuote,
+    slippageTolerance: number = 0.5
+  ): Promise<string> {
+    try {
+      // Calculate minimum output with slippage
+      const minOutput = quote.estimatedOutput * (1 - slippageTolerance / 100);
+
+      // Get pool information
+      const pool = dexConfig.pools.find(p => p.poolAddress === quote.route[0].poolAddress);
+      if (!pool) {
+        throw new Error('Pool not found');
+      }
+
+      // Get token information
+      const inputTokenConfig = dexConfig.tokens.find(t => t.mint === quote.inputToken);
+      const outputTokenConfig = dexConfig.tokens.find(t => t.mint === quote.outputToken);
+
+      if (!inputTokenConfig || !outputTokenConfig) {
+        throw new Error('Token configuration not found');
+      }
+
+      console.log('Swap Details:');
+      console.log(`  Pool: ${pool.poolAddress}`);
+      console.log(`  Shard: ${pool.shardNumber}`);
+      console.log(`  Input: ${quote.inputAmount} ${inputTokenConfig.symbol}`);
+      console.log(`  Expected Output: ${quote.estimatedOutput.toFixed(6)} ${outputTokenConfig.symbol}`);
+      console.log(`  Min Output (${slippageTolerance}% slippage): ${minOutput.toFixed(6)} ${outputTokenConfig.symbol}`);
+      console.log(`  Price Impact: ${quote.priceImpact.toFixed(2)}%`);
+
+      // NOTE: To complete this implementation, you need:
+      // 1. Your program's IDL (instruction format)
+      // 2. The swap instruction structure
+      // 3. Any required PDAs or additional accounts
+
+      // For now, we'll show what would be needed:
+      const swapDetails = {
+        pool: pool.poolAddress,
+        shard: pool.shardNumber,
+        inputToken: inputTokenConfig.symbol,
+        outputToken: outputTokenConfig.symbol,
+        inputAmount: quote.inputAmount,
+        minOutputAmount: minOutput,
+        estimatedOutput: quote.estimatedOutput,
+        priceImpact: quote.priceImpact,
+        fee: quote.totalFee,
+      };
+
+      console.log('\n⚠️ Transaction building not yet implemented');
+      console.log('📋 Swap details:', swapDetails);
+      console.log('\n📝 To complete this implementation, add your program IDL and build the swap instruction.');
+      console.log('See SHARDED_DEX_INTEGRATION.md for examples.');
+
+      // Return a simulated transaction signature for testing
+      // Remove this and implement real transaction building
+      const simulatedTxId = `SIMULATED_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      console.log(`\n✅ Simulated Transaction: ${simulatedTxId}`);
+      console.log('💡 This is a demo mode. Implement real swap instruction to enable live trading.');
+
+      return simulatedTxId;
+
+    } catch (error) {
+      console.error('Swap execution error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pool statistics
+   */
+  async getPoolStats(poolAddress: string): Promise<{
+    tvl: number;
+    volume24h: number;
+    fees24h: number;
+    apy: number;
+  }> {
+    // TODO: Fetch on-chain data and calculate stats
+    const pool = dexConfig.pools.find(p => p.poolAddress === poolAddress);
+
+    if (!pool) {
+      throw new Error('Pool not found');
+    }
+
+    // Placeholder - implement actual on-chain data fetching
+    return {
+      tvl: parseFloat(pool.liquidityA) * 2, // Rough estimate
+      volume24h: 0,
+      fees24h: 0,
+      apy: 0
+    };
+  }
+
+  /**
+   * Get all trading pairs
+   */
+  getTradingPairs(): Array<{ pair: string; shards: number }> {
+    return dexConfig.summary.pairs;
+  }
+
+  /**
+   * Get program ID
+   */
+  getProgramId(): PublicKey {
+    return this.programId;
+  }
+
+  /**
+   * Get connection
+   */
+  getConnection(): Connection {
+    return this.connection;
+  }
+}
+
+// Export singleton instance
+export const shardedDex = new ShardedDexService();
+export default shardedDex;
