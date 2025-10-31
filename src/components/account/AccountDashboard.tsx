@@ -47,7 +47,7 @@ export function AccountDashboard() {
   // Get user's transactions
   const userTransactions = useMemo(() => {
     if (!address) return [];
-    return transactions.filter(tx => tx.walletAddress === address);
+    return transactions.filter(tx => tx.feePayer === address);
   }, [transactions, address]);
 
   // Apply filters

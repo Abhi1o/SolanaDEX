@@ -282,6 +282,7 @@ export function SolanaSwapInterface({ onSwapInitiate, className = '' }: SolanaSw
       if (result.signature) {
         const transaction: Transaction = {
           signature: result.signature,
+          hash: result.signature,
           type: TransactionType.SWAP,
           status: result.status,
           timestamp: Date.now(),
@@ -291,8 +292,8 @@ export function SolanaSwapInterface({ onSwapInitiate, className = '' }: SolanaSw
           amountOut: quote.outputAmount,
           solFee: quote.estimatedSolFee,
           priceImpact: quote.priceImpact,
-          slippageTolerance: quote.slippageTolerance,
-          walletAddress: address || publicKey.toString(),
+          slippage: quote.slippageTolerance,
+          feePayer: publicKey.toString(),
         };
 
         // Add to transaction store

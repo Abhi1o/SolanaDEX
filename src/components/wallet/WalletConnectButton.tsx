@@ -73,15 +73,16 @@ export const WalletConnectButton: React.FC<WalletConnectButtonProps> = ({
           onClick={handleConnect}
           disabled={isConnecting}
           className={`
-            inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md
-            text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 
-            focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed
-            transition-colors duration-200 ${className}
+            inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg
+            text-white bg-white/10 hover:bg-white/20 border border-white/10
+            focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black
+            disabled:opacity-50 disabled:cursor-not-allowed
+            transition-all duration-200 ${className}
           `}
         >
           {isConnecting ? (
             <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white mr-2"></div>
               Connecting...
             </>
           ) : (
@@ -103,95 +104,31 @@ export const WalletConnectButton: React.FC<WalletConnectButtonProps> = ({
   }
 
   return (
-    <div className={`flex items-center space-x-2 ${className}`}>
-      {/* Network Selector (if enabled) */}
-      {showNetwork && (
-        <Menu as="div" className="relative inline-block text-left">
-          <div>
-            <Menu.Button
-              disabled={isNetworkSwitching}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-            >
-              <div className={`w-2 h-2 rounded-full mr-2 ${getNetworkColor(network)}`} />
-              <span className="capitalize">{network}</span>
-              {isNetworkSwitching ? (
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600 ml-2"></div>
-              ) : (
-                <ChevronDownIcon className="ml-2 h-4 w-4" />
-              )}
-            </Menu.Button>
-          </div>
-
-          <Transition
-            as={Fragment}
-            enter="transition ease-out duration-100"
-            enterFrom="transform opacity-0 scale-95"
-            enterTo="transform opacity-100 scale-100"
-            leave="transition ease-in duration-75"
-            leaveFrom="transform opacity-100 scale-100"
-            leaveTo="transform opacity-0 scale-95"
-          >
-            <Menu.Items className="absolute left-0 mt-2 w-40 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
-              <div className="py-1">
-                {['mainnet-beta', 'devnet', 'testnet'].map((net) => (
-                  <Menu.Item key={net}>
-                    {({ active }) => (
-                      <button
-                        onClick={() => handleNetworkSwitch(net)}
-                        className={`${
-                          active ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
-                        } ${
-                          network === net ? 'bg-indigo-50 text-indigo-700' : ''
-                        } group flex items-center w-full px-4 py-2 text-sm`}
-                      >
-                        <div className={`w-2 h-2 rounded-full mr-3 ${getNetworkColor(net)}`} />
-                        <span className="capitalize">{net.replace('-beta', '')}</span>
-                      </button>
-                    )}
-                  </Menu.Item>
-                ))}
-              </div>
-            </Menu.Items>
-          </Transition>
-        </Menu>
-      )}
-
+    <div className={`flex items-center ${className}`}>
       {/* Wallet Info */}
       <Menu as="div" className="relative inline-block text-left">
         <div>
-          <Menu.Button className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+          <Menu.Button className="inline-flex items-center px-4 py-2 border border-white/10 bg-white/10 hover:bg-white/20 text-sm font-medium rounded-lg text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black">
             <WalletIcon className="h-4 w-4 mr-2" />
-            <div className="flex flex-col items-start">
-              <span className="text-xs text-gray-500">{walletName}</span>
-              <span className="font-mono">{shortenAddress(address || '')}</span>
-            </div>
-            {showBalance && (
-              <div className="ml-3 text-right">
-                <div className="text-xs text-gray-500">Balance</div>
-                <div className="font-medium">{formattedSolBalance} SOL</div>
-              </div>
-            )}
-            <ChevronDownIcon className="ml-2 h-4 w-4" />
+            <span className="font-mono text-xs">{shortenAddress(address || '')}</span>
+            <ChevronDownIcon className="ml-2 h-4 w-4 text-gray-400" />
           </Menu.Button>
         </div>
 
         <Transition
           as={Fragment}
-          enter="transition ease-out duration-100"
+          enter="transition ease-out duration-200"
           enterFrom="transform opacity-0 scale-95"
           enterTo="transform opacity-100 scale-100"
-          leave="transition ease-in duration-75"
+          leave="transition ease-in duration-150"
           leaveFrom="transform opacity-100 scale-100"
           leaveTo="transform opacity-0 scale-95"
         >
-          <Menu.Items className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
+          <Menu.Items className="absolute right-0 mt-2 w-56 rounded-lg backdrop-blur-xl bg-black/90 border border-white/10 shadow-lg focus:outline-none z-50 overflow-hidden">
             <div className="py-1">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <div className="text-sm font-medium text-gray-900">{walletName}</div>
-                <div className="text-sm text-gray-500 font-mono">{address}</div>
-                <div className="text-sm text-gray-500 mt-1">
-                  Balance: {formattedSolBalance} SOL
-                </div>
+              <div className="px-4 py-3 border-b border-white/10">
+                <div className="text-sm font-medium text-white mb-1">{walletName}</div>
+                <div className="text-xs text-gray-400 font-mono break-all">{address}</div>
               </div>
               
               <Menu.Item>
@@ -199,8 +136,8 @@ export const WalletConnectButton: React.FC<WalletConnectButtonProps> = ({
                   <button
                     onClick={() => navigator.clipboard.writeText(address || '')}
                     className={`${
-                      active ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
-                    } group flex items-center w-full px-4 py-2 text-sm`}
+                      active ? 'bg-white/10 text-white' : 'text-gray-300'
+                    } group flex items-center w-full px-4 py-2 text-sm font-medium transition-all duration-200`}
                   >
                     Copy Address
                   </button>
@@ -214,22 +151,22 @@ export const WalletConnectButton: React.FC<WalletConnectButtonProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`${
-                      active ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
-                    } group flex items-center w-full px-4 py-2 text-sm`}
+                      active ? 'bg-white/10 text-white' : 'text-gray-300'
+                    } group flex items-center w-full px-4 py-2 text-sm font-medium transition-all duration-200`}
                   >
                     View on Solscan
                   </a>
                 )}
               </Menu.Item>
               
-              <div className="border-t border-gray-100">
+              <div className="border-t border-white/10 mt-1">
                 <Menu.Item>
                   {({ active }) => (
                     <button
                       onClick={handleDisconnect}
                       className={`${
-                        active ? 'bg-red-50 text-red-700' : 'text-red-600'
-                      } group flex items-center w-full px-4 py-2 text-sm`}
+                        active ? 'bg-white/10 text-red-400' : 'text-red-400'
+                      } group flex items-center w-full px-4 py-2 text-sm font-medium transition-all duration-200`}
                     >
                       Disconnect
                     </button>
@@ -254,11 +191,11 @@ export const WalletConnectButton: React.FC<WalletConnectButtonProps> = ({
 const getNetworkColor = (network: string): string => {
   switch (network) {
     case 'mainnet-beta':
-      return 'bg-green-400';
+      return 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]';
     case 'devnet':
-      return 'bg-yellow-400';
+      return 'bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]';
     case 'testnet':
-      return 'bg-blue-400';
+      return 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.5)]';
     default:
       return 'bg-gray-400';
   }

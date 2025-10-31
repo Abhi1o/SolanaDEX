@@ -5,7 +5,7 @@ import { TransactionList } from '@/components/transactions';
 import { MotionFadeIn, MotionReveal, MotionStagger } from '@/components/animations';
 import { AnimatedStat } from '@/components/ui/AnimatedStat';
 import { motion } from 'framer-motion';
-import { CheckCircleIcon, ClockIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline';
 
 export default function TransactionsPage() {
   return (

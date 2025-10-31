@@ -8,8 +8,9 @@ import {
   HomeIcon,
   ArrowsRightLeftIcon,
   BeakerIcon,
-  ChartBarIcon,
-  ClockIcon
+  ClockIcon,
+  UserCircleIcon,
+  CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -19,7 +20,8 @@ const navigation = [
   { name: 'Home', href: '/', icon: HomeIcon },
   { name: 'Swap', href: '/swap', icon: ArrowsRightLeftIcon },
   { name: 'Pools', href: '/pools', icon: BeakerIcon },
-  { name: 'Portfolio', href: '/portfolio', icon: ChartBarIcon },
+  { name: 'Liquidity', href: '/liquidity', icon: CurrencyDollarIcon },
+  { name: 'Account', href: '/account', icon: UserCircleIcon },
   { name: 'Transactions', href: '/transactions', icon: ClockIcon },
 ];
 
@@ -32,7 +34,7 @@ export function MobileNav() {
       {/* Mobile menu button */}
       <button
         type="button"
-        className="lg:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-700 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+        className="lg:hidden inline-flex items-center justify-center p-2 rounded-2xl text-gray-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-all"
         onClick={() => setMobileMenuOpen(true)}
       >
         <span className="sr-only">Open main menu</span>
@@ -87,15 +89,15 @@ export function MobileNav() {
                 </Transition.Child>
 
                 {/* Sidebar content */}
-                <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">
+                <div className="flex grow flex-col gap-y-5 overflow-y-auto backdrop-blur-xl bg-black/95 px-6 pb-4">
                   <div className="flex h-16 shrink-0 items-center">
-                    <h1 className="text-xl font-bold text-gray-900">Solana DEX</h1>
+                    <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Solana DEX</h1>
                   </div>
                   
                   <nav className="flex flex-1 flex-col">
                     <ul role="list" className="flex flex-1 flex-col gap-y-7">
                       <li>
-                        <ul role="list" className="-mx-2 space-y-1">
+                        <ul role="list" className="-mx-2 space-y-2">
                           {navigation.map((item) => {
                             const isActive = pathname === item.href;
                             return (
@@ -104,16 +106,16 @@ export function MobileNav() {
                                   href={item.href}
                                   onClick={() => setMobileMenuOpen(false)}
                                   className={`
-                                    group flex gap-x-3 rounded-md p-3 text-sm leading-6 font-semibold
+                                    group flex gap-x-3 rounded-2xl p-3 text-sm leading-6 font-semibold transition-all
                                     ${isActive
-                                      ? 'bg-blue-50 text-blue-600'
-                                      : 'text-gray-700 hover:text-blue-600 hover:bg-gray-50'
+                                      ? 'backdrop-blur-xl bg-gradient-to-r from-blue-500/20 to-purple-600/20 border border-blue-500/50 text-white'
+                                      : 'text-gray-300 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10'
                                     }
                                   `}
                                 >
                                   <item.icon
-                                    className={`h-6 w-6 shrink-0 ${
-                                      isActive ? 'text-blue-600' : 'text-gray-400 group-hover:text-blue-600'
+                                    className={`h-5 w-5 shrink-0 ${
+                                      isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'
                                     }`}
                                     aria-hidden="true"
                                   />
@@ -126,7 +128,7 @@ export function MobileNav() {
                       </li>
                       
                       <li className="mt-auto">
-                        <div className="border-t border-gray-200 pt-4">
+                        <div className="border-t border-white/10 pt-4">
                           <WalletConnectButton 
                             className="w-full justify-center"
                             showBalance={true}

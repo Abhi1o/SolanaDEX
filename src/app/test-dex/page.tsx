@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useShardedDex } from '@/hooks/useShardedDex';
 import { Connection, PublicKey } from '@solana/web3.js';
 import dexConfig from '@/config/dex-config.json';

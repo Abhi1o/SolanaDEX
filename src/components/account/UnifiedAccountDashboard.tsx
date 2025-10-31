@@ -42,7 +42,7 @@ export function UnifiedAccountDashboard() {
   // Get user's transactions
   const userTransactions = useMemo(() => {
     if (!address) return [];
-    return transactions.filter(tx => tx.walletAddress === address);
+    return transactions.filter(tx => tx.feePayer === address);
   }, [transactions, address]);
 
   // Transaction statistics

@@ -3,10 +3,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Dialog } from '@headlessui/react';
 import { XMarkIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { Pool, Token } from '@/types';
+import { Pool } from '@/types';
 import { TokenLogo } from '@/components/tokens/TokenLogo';
 import { useWallet } from '@/hooks/useWallet';
-import { useSolanaConnection } from '@/hooks/useSolanaConnection';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { formatTokenAmount, formatNumber } from '@/utils/formatting';
 import { validatePoolCreation, hasSufficientSolForPoolCreation } from '@/utils/poolValidation';
@@ -45,7 +44,6 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-  const [focusedInput, setFocusedInput] = useState<'A' | 'B' | null>(null);
 
   // Reset state when dialog opens/closes or pool changes
   useEffect(() => {
@@ -59,7 +57,6 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
       });
       setError(null);
       setValidationErrors({});
-      setFocusedInput(null);
     }
   }, [isOpen, pool]);
 
@@ -115,7 +112,6 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
   const handleAmountAChange = (value: string) => {
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setState(prev => ({ ...prev, amountA: value }));
-      setFocusedInput('A');
       
       if (value && poolRatio > 0) {
         const calculatedB = calculateAmountB(value);
@@ -129,7 +125,6 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
   const handleAmountBChange = (value: string) => {
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setState(prev => ({ ...prev, amountB: value }));
-      setFocusedInput('B');
       
       if (value && poolRatio > 0) {
         const calculatedA = calculateAmountA(value);

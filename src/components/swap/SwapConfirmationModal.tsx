@@ -163,7 +163,7 @@ export function SwapConfirmationModal({
                 {/* Swap Summary */}
                 <div className="mb-6">
                   <div className="text-center">
-                    <div className="text-sm text-gray-600 mb-2">You're swapping</div>
+                    <div className="text-sm text-gray-600 mb-2">You&apos;re swapping</div>
                     
                     {/* From Token */}
                     <div className="flex items-center justify-center space-x-3 mb-4">
