@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useShardedDex } from "@/hooks/useShardedDex";
 import { SwapQuote } from "@/lib/shardedDex";
 import { TokenIcon } from "@/components/tokens/TokenIcon";
+import { TokenBalances } from "./TokenBalances";
 
 /**
  * Example component showing how to use the Sharded DEX
@@ -271,6 +272,11 @@ export function ShardedSwapInterface() {
       {/* Right Side - Info Card */}
       <div className="lg:col-span-2">
         <div className="backdrop-blur-xl bg-white/5 rounded-3xl p-6 border border-white/10 shadow-2xl sticky top-24">
+          {/* Token Balances */}
+          <div className="mb-6">
+            <TokenBalances tokens={tokens} />
+          </div>
+
           {/* Available Shards */}
           {pools.length > 0 && (
             <div className="mb-6">
