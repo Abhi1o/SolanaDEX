@@ -11,8 +11,8 @@ export {
   TokenListSkeleton, 
   PoolCardSkeleton, 
   TransactionListSkeleton 
-} from './SkeletonLoader';export { Mo
-bileNav } from './MobileNav';
+} from './SkeletonLoader';
+export { MobileNav } from './MobileNav';
 export { ResponsiveNav } from './ResponsiveNav';
 export { SkipNav } from './SkipNav';
 export { AccessibilityProvider, useAccessibility } from './AccessibilityProvider';

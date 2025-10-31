@@ -7,7 +7,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { shardedDex, SwapQuote, TokenConfig, ShardedPool } from '../lib/shardedDex';
 
 export function useShardedDex() {
-  const { publicKey } = useWallet();
+  const { publicKey, signTransaction, signAllTransactions } = useWallet();
   const [tokens, setTokens] = useState<TokenConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function useShardedDex() {
     quote: SwapQuote,
     slippageTolerance: number = 0.5
   ): Promise<string | null> => {
-    if (!publicKey) {
+    if (!publicKey || !signTransaction) {
       setError('Wallet not connected');
       return null;
     }
@@ -65,8 +65,15 @@ export function useShardedDex() {
     setError(null);
 
     try {
-      const signature = await shardedDex.executeSwap(
+      // Create wallet adapter object with necessary methods
+      const walletAdapter = {
         publicKey,
+        signTransaction,
+        signAllTransactions,
+      };
+
+      const signature = await shardedDex.executeSwap(
+        walletAdapter,
         quote,
         slippageTolerance
       );
@@ -78,7 +85,7 @@ export function useShardedDex() {
     } finally {
       setLoading(false);
     }
-  }, [publicKey]);
+  }, [publicKey, signTransaction, signAllTransactions]);
 
   /**
    * Get pools for a trading pair

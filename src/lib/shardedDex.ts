@@ -204,11 +204,13 @@ class ShardedDexService {
    * Execute swap on the sharded DEX
    */
   async executeSwap(
-    wallet: PublicKey,
+    walletAdapter: any, // Wallet adapter with signTransaction
     quote: SwapQuote,
     slippageTolerance: number = 0.5
   ): Promise<string> {
     try {
+      const wallet = walletAdapter.publicKey;
+
       // Calculate minimum output with slippage
       const minOutput = quote.estimatedOutput * (1 - slippageTolerance / 100);
 
@@ -226,7 +228,7 @@ class ShardedDexService {
         throw new Error('Token configuration not found');
       }
 
-      console.log('Swap Details:');
+      console.log('🔄 Building Swap Transaction...');
       console.log(`  Pool: ${pool.poolAddress}`);
       console.log(`  Shard: ${pool.shardNumber}`);
       console.log(`  Input: ${quote.inputAmount} ${inputTokenConfig.symbol}`);
@@ -234,40 +236,83 @@ class ShardedDexService {
       console.log(`  Min Output (${slippageTolerance}% slippage): ${minOutput.toFixed(6)} ${outputTokenConfig.symbol}`);
       console.log(`  Price Impact: ${quote.priceImpact.toFixed(2)}%`);
 
-      // NOTE: To complete this implementation, you need:
-      // 1. Your program's IDL (instruction format)
-      // 2. The swap instruction structure
-      // 3. Any required PDAs or additional accounts
+      // Convert amounts to base units (lamports/smallest unit)
+      const amountIn = BigInt(Math.floor(quote.inputAmount * Math.pow(10, inputTokenConfig.decimals)));
+      const minimumAmountOut = BigInt(Math.floor(minOutput * Math.pow(10, outputTokenConfig.decimals)));
 
-      // For now, we'll show what would be needed:
-      const swapDetails = {
-        pool: pool.poolAddress,
-        shard: pool.shardNumber,
-        inputToken: inputTokenConfig.symbol,
-        outputToken: outputTokenConfig.symbol,
-        inputAmount: quote.inputAmount,
-        minOutputAmount: minOutput,
-        estimatedOutput: quote.estimatedOutput,
-        priceImpact: quote.priceImpact,
-        fee: quote.totalFee,
-      };
+      // Import swap instruction builder
+      const { buildSimpleSwapTransaction } = await import('./swapInstructions');
 
-      console.log('\n⚠️ Transaction building not yet implemented');
-      console.log('📋 Swap details:', swapDetails);
-      console.log('\n📝 To complete this implementation, add your program IDL and build the swap instruction.');
-      console.log('See SHARDED_DEX_INTEGRATION.md for examples.');
+      // Build the transaction
+      const transaction = await buildSimpleSwapTransaction(
+        this.connection,
+        this.programId,
+        wallet,
+        new PublicKey(pool.poolAddress),
+        new PublicKey(pool.authority),
+        new PublicKey(inputTokenConfig.mint),
+        new PublicKey(outputTokenConfig.mint),
+        new PublicKey(pool.tokenAccountA),
+        new PublicKey(pool.tokenAccountB),
+        amountIn,
+        minimumAmountOut
+      );
 
-      // Return a simulated transaction signature for testing
-      // Remove this and implement real transaction building
-      const simulatedTxId = `SIMULATED_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('📝 Transaction built successfully');
+      console.log('🔐 Requesting wallet signature...');
 
-      console.log(`\n✅ Simulated Transaction: ${simulatedTxId}`);
-      console.log('💡 This is a demo mode. Implement real swap instruction to enable live trading.');
+      // Sign the transaction with wallet
+      const signedTransaction = await walletAdapter.signTransaction(transaction);
 
-      return simulatedTxId;
+      console.log('✅ Transaction signed');
+      console.log('📤 Sending transaction to Solana...');
+
+      // Send the signed transaction
+      const signature = await this.connection.sendRawTransaction(
+        signedTransaction.serialize(),
+        {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+          maxRetries: 3,
+        }
+      );
+
+      console.log('⏳ Confirming transaction...');
+      console.log(`   Signature: ${signature}`);
+
+      // Confirm the transaction
+      const confirmation = await this.connection.confirmTransaction(
+        {
+          signature,
+          blockhash: transaction.recentBlockhash!,
+          lastValidBlockHeight: transaction.lastValidBlockHeight!,
+        },
+        'confirmed'
+      );
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      console.log('✅ Swap completed successfully!');
+      console.log(`   View on Solana Explorer: https://explorer.solana.com/tx/${signature}?cluster=devnet`);
+
+      return signature;
 
     } catch (error) {
-      console.error('Swap execution error:', error);
+      console.error('❌ Swap execution error:', error);
+
+      // Provide helpful error messages
+      if (error instanceof Error) {
+        if (error.message.includes('User rejected')) {
+          throw new Error('Transaction cancelled by user');
+        } else if (error.message.includes('insufficient funds')) {
+          throw new Error('Insufficient SOL for transaction fees');
+        } else if (error.message.includes('TokenAccountNotFoundError')) {
+          throw new Error('Token account not found. Please ensure you have the input token.');
+        }
+      }
+
       throw error;
     }
   }

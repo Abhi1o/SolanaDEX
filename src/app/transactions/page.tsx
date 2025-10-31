@@ -2,22 +2,81 @@
 
 import React from 'react';
 import { TransactionList } from '@/components/transactions';
+import { MotionFadeIn, MotionReveal, MotionStagger } from '@/components/animations';
+import { AnimatedStat } from '@/components/ui/AnimatedStat';
+import { motion } from 'framer-motion';
+import { CheckCircleIcon, ClockIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline';
 
 export default function TransactionsPage() {
   return (
-    <div className="bg-gray-50 min-h-[calc(100vh-4rem)] py-4 sm:py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Transaction History</h1>
-            <p className="text-sm text-gray-600 mt-1">
+    <div className="relative bg-black text-white min-h-[calc(100vh-4rem)] overflow-hidden">
+      {/* Animated Background Gradients */}
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/20 to-pink-600/20">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(168,85,247,0.15),transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,rgba(236,72,153,0.1),transparent_50%)]" />
+      </div>
+
+      {/* Content */}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        {/* Header */}
+        <MotionFadeIn delay={0.1}>
+          <div className="text-center mb-12">
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: [0.25, 0.4, 0.25, 1] }}
+              className="text-4xl sm:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400"
+            >
+              Transaction History
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1, ease: [0.25, 0.4, 0.25, 1] }}
+              className="text-base sm:text-lg text-gray-400 font-light"
+            >
               View all your swap, pool, and token transactions
-            </p>
+            </motion.p>
           </div>
-          <div className="p-4 sm:p-6">
-            <TransactionList />
+        </MotionFadeIn>
+
+        {/* Statistics */}
+        <MotionStagger staggerDelay={0.1}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <AnimatedStat
+              value="156"
+              label="Total Transactions"
+              gradient="from-blue-400 to-cyan-400"
+              icon={<CheckCircleIcon className="w-full h-full text-white" />}
+              delay={0.2}
+            />
+            <AnimatedStat
+              value="98.7%"
+              label="Success Rate"
+              gradient="from-green-400 to-emerald-400"
+              icon={<CheckCircleIcon className="w-full h-full text-white" />}
+              delay={0.3}
+              suffix="%"
+            />
+            <AnimatedStat
+              value="$12.4K"
+              label="Total Volume"
+              gradient="from-purple-400 to-pink-400"
+              icon={<CurrencyDollarIcon className="w-full h-full text-white" />}
+              delay={0.4}
+            />
           </div>
-        </div>
+        </MotionStagger>
+
+        {/* Transaction List */}
+        <MotionReveal delay={0.5} direction="up">
+          <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 overflow-hidden">
+            <div className="p-6 sm:p-8">
+              <TransactionList />
+            </div>
+          </div>
+        </MotionReveal>
       </div>
     </div>
   );

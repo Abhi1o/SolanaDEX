@@ -6,8 +6,13 @@ import { XMarkIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@hero
 import { Pool, Token } from '@/types';
 import { TokenLogo } from '@/components/tokens/TokenLogo';
 import { useWallet } from '@/hooks/useWallet';
+import { useSolanaConnection } from '@/hooks/useSolanaConnection';
+import { useConnection } from '@solana/wallet-adapter-react';
 import { formatTokenAmount, formatNumber } from '@/utils/formatting';
 import { validatePoolCreation, hasSufficientSolForPoolCreation } from '@/utils/poolValidation';
+import { getLiquidityService } from '@/services/liquidityService';
+import { TransactionStatus, TransactionType } from '@/types';
+import { useTransactionStore } from '@/stores/transactionStore';
 
 interface AddLiquidityProps {
   pool: Pool | null;
@@ -25,7 +30,9 @@ interface LiquidityState {
 }
 
 export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiquidityProps) {
-  const { isConnected, tokenBalances, solBalance } = useWallet();
+  const { isConnected, tokenBalances, solBalance, solanaWallet } = useWallet();
+  const { connection } = useConnection();
+  const { addTransaction } = useTransactionStore();
   
   const [state, setState] = useState<LiquidityState>({
     amountA: '',
@@ -252,23 +259,55 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
     setError(null);
 
     try {
-      // TODO: Implement actual liquidity addition with Solana programs
       const amountABigInt = BigInt(Math.floor(parseFloat(state.amountA) * Math.pow(10, pool.tokenA.decimals)));
       const amountBBigInt = BigInt(Math.floor(parseFloat(state.amountB) * Math.pow(10, pool.tokenB.decimals)));
 
-      console.log('Adding liquidity:', {
-        poolId: pool.id,
-        amountA: amountABigInt.toString(),
-        amountB: amountBBigInt.toString(),
-        expectedLpTokens: state.lpTokensToReceive.toString(),
-      });
+      if (!connection || !solanaWallet) {
+        throw new Error('Connection or wallet not available');
+      }
 
-      // Simulate transaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const liquidityService = getLiquidityService(connection);
+      
+      // Calculate min LP tokens (with 1% slippage tolerance)
+      const minLpTokens = state.lpTokensToReceive * BigInt(99) / BigInt(100);
 
-      const mockTxSignature = `add_liquidity_${Date.now()}`;
-      onLiquidityAdded?.(pool.id, mockTxSignature);
-      onClose();
+      const result = await liquidityService.addLiquidity(
+        {
+          pool,
+          amountA: amountABigInt,
+          amountB: amountBBigInt,
+          minLpTokens,
+        },
+        solanaWallet,
+        (status, signature, error) => {
+          if (error) {
+            setError(error);
+          }
+        }
+      );
+
+      if (result.status === TransactionStatus.CONFIRMED) {
+        onLiquidityAdded?.(pool.id, result.signature);
+        
+        // Record transaction
+        addTransaction({
+          signature: result.signature,
+          hash: result.signature,
+          type: TransactionType.ADD_LIQUIDITY,
+          status: TransactionStatus.CONFIRMED,
+          timestamp: Date.now(),
+          tokenIn: pool.tokenA,
+          tokenOut: pool.tokenB,
+          amountIn: amountABigInt,
+          amountOut: amountBBigInt,
+          feePayer: solanaWallet.publicKey?.toString() || '',
+          solFee: BigInt(5000), // Estimated
+        });
+        
+        onClose();
+      } else {
+        setError(result.error || 'Failed to add liquidity');
+      }
 
     } catch (err) {
       console.error('Add liquidity failed:', err);

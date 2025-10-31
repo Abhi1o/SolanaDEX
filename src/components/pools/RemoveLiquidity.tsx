@@ -6,8 +6,14 @@ import { XMarkIcon, InformationCircleIcon, ExclamationTriangleIcon } from '@hero
 import { Pool } from '@/types';
 import { TokenLogo } from '@/components/tokens/TokenLogo';
 import { useWallet } from '@/hooks/useWallet';
+import { useConnection } from '@solana/wallet-adapter-react';
 import { formatTokenAmount, formatNumber } from '@/utils/formatting';
 import { hasSufficientSolForPoolCreation } from '@/utils/poolValidation';
+import { getLiquidityService } from '@/services/liquidityService';
+import { TransactionStatus, TransactionType } from '@/types';
+import { useTransactionStore } from '@/stores/transactionStore';
+import { usePoolPosition } from '@/hooks/useLiquidityPositions';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
 
 interface RemoveLiquidityProps {
   pool: Pool | null;
@@ -25,7 +31,10 @@ interface RemovalState {
 }
 
 export function RemoveLiquidity({ pool, isOpen, onClose, onLiquidityRemoved }: RemoveLiquidityProps) {
-  const { isConnected, solBalance } = useWallet();
+  const { isConnected, solBalance, solanaWallet, publicKey } = useWallet();
+  const { connection } = useConnection();
+  const { addTransaction } = useTransactionStore();
+  const { position } = usePoolPosition(pool?.id || null);
   
   const [state, setState] = useState<RemovalState>({
     percentage: 0,
@@ -38,13 +47,15 @@ export function RemoveLiquidity({ pool, isOpen, onClose, onLiquidityRemoved }: R
   const [isRemoving, setIsRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [fetchedLpBalance, setFetchedLpBalance] = useState<bigint>(BigInt(0));
 
-  // Mock user LP token balance (in real implementation, fetch from wallet)
+  // Get user LP token balance from position or fetched balance
   const userLpTokenBalance = useMemo(() => {
-    if (!pool) return BigInt(0);
-    // Mock: user owns 10% of the pool
-    return pool.lpTokenSupply / BigInt(10);
-  }, [pool]);
+    if (position) {
+      return position.lpTokenBalance;
+    }
+    return fetchedLpBalance;
+  }, [position, fetchedLpBalance]);
 
   // Reset state when dialog opens/closes or pool changes
   useEffect(() => {
@@ -60,6 +71,37 @@ export function RemoveLiquidity({ pool, isOpen, onClose, onLiquidityRemoved }: R
       setValidationErrors({});
     }
   }, [isOpen, pool]);
+  
+  useEffect(() => {
+    const fetchLpBalance = async () => {
+      if (!pool || !publicKey || !connection || position) {
+        if (position) {
+          setFetchedLpBalance(position.lpTokenBalance);
+        }
+        return;
+      }
+      
+      try {
+        const lpTokenAccount = await getAssociatedTokenAddress(
+          pool.lpTokenMint,
+          publicKey
+        );
+        const accountInfo = await connection.getTokenAccountBalance(lpTokenAccount);
+        if (accountInfo.value) {
+          setFetchedLpBalance(BigInt(accountInfo.value.amount));
+        } else {
+          setFetchedLpBalance(BigInt(0));
+        }
+      } catch (error) {
+        // Account doesn't exist - user has no LP tokens
+        setFetchedLpBalance(BigInt(0));
+      }
+    };
+    
+    if (isOpen && pool && publicKey) {
+      fetchLpBalance();
+    }
+  }, [isOpen, pool, publicKey, connection, position]);
 
   // Calculate removal amounts based on percentage
   useEffect(() => {
@@ -152,21 +194,53 @@ export function RemoveLiquidity({ pool, isOpen, onClose, onLiquidityRemoved }: R
     setError(null);
 
     try {
-      // TODO: Implement actual liquidity removal with Solana programs
-      console.log('Removing liquidity:', {
-        poolId: pool.id,
-        percentage: state.percentage,
-        lpTokensToRemove: state.lpTokensToRemove.toString(),
-        tokenAToReceive: state.tokenAToReceive.toString(),
-        tokenBToReceive: state.tokenBToReceive.toString(),
-      });
+      if (!connection || !solanaWallet) {
+        throw new Error('Connection or wallet not available');
+      }
 
-      // Simulate transaction
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Calculate minimum tokens to receive (with 1% slippage tolerance)
+      const minTokenA = state.tokenAToReceive * BigInt(99) / BigInt(100);
+      const minTokenB = state.tokenBToReceive * BigInt(99) / BigInt(100);
 
-      const mockTxSignature = `remove_liquidity_${Date.now()}`;
-      onLiquidityRemoved?.(pool.id, mockTxSignature);
-      onClose();
+      const liquidityService = getLiquidityService(connection);
+
+      const result = await liquidityService.removeLiquidity(
+        {
+          pool,
+          lpTokenAmount: state.lpTokensToRemove,
+          minTokenA,
+          minTokenB,
+        },
+        solanaWallet,
+        (status, signature, error) => {
+          if (error) {
+            setError(error);
+          }
+        }
+      );
+
+      if (result.status === TransactionStatus.CONFIRMED) {
+        onLiquidityRemoved?.(pool.id, result.signature);
+        
+        // Record transaction
+        addTransaction({
+          signature: result.signature,
+          hash: result.signature,
+          type: TransactionType.REMOVE_LIQUIDITY,
+          status: TransactionStatus.CONFIRMED,
+          timestamp: Date.now(),
+          tokenIn: pool.tokenA,
+          tokenOut: pool.tokenB,
+          amountIn: state.tokenAToReceive,
+          amountOut: state.tokenBToReceive,
+          feePayer: solanaWallet.publicKey?.toString() || '',
+          solFee: BigInt(5000), // Estimated
+        });
+        
+        onClose();
+      } else {
+        setError(result.error || 'Failed to remove liquidity');
+      }
 
     } catch (err) {
       console.error('Remove liquidity failed:', err);

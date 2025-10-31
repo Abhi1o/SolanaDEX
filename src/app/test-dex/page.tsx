@@ -107,68 +107,85 @@ export default function TestDexPage() {
   const pairs = getTradingPairs();
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-4xl mx-auto px-4">
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Sharded DEX Test Suite</h1>
-          <p className="text-gray-600 mb-6">Verify your DEX integration is working correctly</p>
+    <div className="relative min-h-screen bg-black text-white overflow-hidden">
+      {/* Animated Background Gradients */}
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 via-purple-600/20 to-pink-600/20">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(168,85,247,0.15),transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,rgba(236,72,153,0.1),transparent_50%)]" />
+      </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="text-sm text-blue-600 font-medium">Network</div>
-              <div className="text-lg font-bold text-blue-900">Solana Devnet</div>
+      <div className="relative z-10 max-w-4xl mx-auto px-4 py-8">
+        <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 p-6 sm:p-8 mb-6">
+          <h1 className="text-3xl sm:text-4xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">
+            Sharded DEX Test Suite
+          </h1>
+          <p className="text-gray-400 mb-8 font-light">Verify your DEX integration is working correctly</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div className="backdrop-blur-xl bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4">
+              <div className="text-sm text-blue-300 font-medium">Network</div>
+              <div className="text-lg font-bold text-white">Solana Devnet</div>
             </div>
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="text-sm text-green-600 font-medium">Tokens</div>
-              <div className="text-lg font-bold text-green-900">{tokens.length} Tokens</div>
+            <div className="backdrop-blur-xl bg-green-500/10 border border-green-500/30 rounded-2xl p-4">
+              <div className="text-sm text-green-300 font-medium">Tokens</div>
+              <div className="text-lg font-bold text-white">{tokens.length} Tokens</div>
             </div>
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <div className="text-sm text-purple-600 font-medium">Pools</div>
-              <div className="text-lg font-bold text-purple-900">{dexConfig.pools.length} Pools</div>
+            <div className="backdrop-blur-xl bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4">
+              <div className="text-sm text-purple-300 font-medium">Pools</div>
+              <div className="text-lg font-bold text-white">{dexConfig.pools.length} Pools</div>
             </div>
           </div>
 
           <button
             onClick={runTests}
             disabled={testing}
-            className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold rounded-lg transition-colors"
+            className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold rounded-2xl transition-all shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100"
           >
-            {testing ? 'Running Tests...' : 'Run Tests'}
+            {testing ? (
+              <span className="flex items-center justify-center">
+                <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Running Tests...
+              </span>
+            ) : 'Run Tests'}
           </button>
         </div>
 
         {/* Test Results */}
         {testResults.length > 0 && (
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Test Results</h2>
+          <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 p-6 sm:p-8 mb-6">
+            <h2 className="text-xl font-bold text-white mb-6">Test Results</h2>
             <div className="space-y-3">
               {testResults.map((result, index) => (
                 <div
                   key={index}
-                  className={`p-4 rounded-lg border ${
+                  className={`p-4 rounded-2xl border backdrop-blur-xl transition-all ${
                     result.status === 'pass'
-                      ? 'bg-green-50 border-green-200'
+                      ? 'bg-green-500/20 border-green-500/50'
                       : result.status === 'fail'
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-gray-50 border-gray-200'
+                      ? 'bg-red-500/20 border-red-500/50'
+                      : 'bg-gray-500/20 border-gray-500/50 animate-pulse'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-gray-900">{result.test}</span>
+                    <span className="font-medium text-white">{result.test}</span>
                     <span
-                      className={`px-2 py-1 rounded text-xs font-bold ${
+                      className={`px-3 py-1 rounded-full text-xs font-bold ${
                         result.status === 'pass'
-                          ? 'bg-green-200 text-green-800'
+                          ? 'bg-green-500/30 text-green-300'
                           : result.status === 'fail'
-                          ? 'bg-red-200 text-red-800'
-                          : 'bg-gray-200 text-gray-800'
+                          ? 'bg-red-500/30 text-red-300'
+                          : 'bg-gray-500/30 text-gray-300'
                       }`}
                     >
                       {result.status.toUpperCase()}
                     </span>
                   </div>
                   {result.details && (
-                    <div className="mt-2 text-sm text-gray-600">{result.details}</div>
+                    <div className="mt-2 text-sm text-gray-300">{result.details}</div>
                   )}
                 </div>
               ))}
@@ -177,34 +194,34 @@ export default function TestDexPage() {
         )}
 
         {/* Configuration Info */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Configuration</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-gray-600">Program ID:</span>
-              <span className="font-mono text-gray-900">{dexConfig.programId}</span>
+        <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 p-6 sm:p-8 mb-6">
+          <h2 className="text-xl font-bold text-white mb-6">Configuration</h2>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between py-3 border-b border-white/10">
+              <span className="text-gray-400">Program ID:</span>
+              <span className="font-mono text-white">{dexConfig.programId}</span>
             </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-gray-600">RPC URL:</span>
-              <span className="font-mono text-gray-900">{dexConfig.rpcUrl}</span>
+            <div className="flex justify-between py-3 border-b border-white/10">
+              <span className="text-gray-400">RPC URL:</span>
+              <span className="font-mono text-white">{dexConfig.rpcUrl}</span>
             </div>
-            <div className="flex justify-between py-2">
-              <span className="text-gray-600">Deployed:</span>
-              <span className="text-gray-900">{new Date(dexConfig.deployedAt).toLocaleString()}</span>
+            <div className="flex justify-between py-3">
+              <span className="text-gray-400">Deployed:</span>
+              <span className="text-white">{new Date(dexConfig.deployedAt).toLocaleString()}</span>
             </div>
           </div>
         </div>
 
         {/* Trading Pairs */}
-        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Trading Pairs</h2>
+        <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 p-6 sm:p-8 mb-6">
+          <h2 className="text-xl font-bold text-white mb-6">Trading Pairs</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {pairs.map((pair) => {
               const pools = getPoolsForPair(pair.pair.split('/')[0], pair.pair.split('/')[1]);
               return (
-                <div key={pair.pair} className="border border-gray-200 rounded-lg p-4">
-                  <div className="font-bold text-gray-900 mb-2">{pair.pair}</div>
-                  <div className="text-sm text-gray-600 mb-3">{pair.shards} Shards</div>
+                <div key={pair.pair} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-4 hover:bg-white/10 hover:border-white/20 transition-all">
+                  <div className="font-bold text-white mb-2">{pair.pair}</div>
+                  <div className="text-sm text-gray-400 mb-3">{pair.shards} Shards</div>
                   <div className="space-y-1">
                     {pools.map((pool) => (
                       <div key={pool.poolAddress} className="text-xs text-gray-500">
@@ -219,14 +236,14 @@ export default function TestDexPage() {
         </div>
 
         {/* Supported Tokens */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Supported Tokens</h2>
+        <div className="backdrop-blur-xl bg-white/5 rounded-3xl border border-white/10 p-6 sm:p-8">
+          <h2 className="text-xl font-bold text-white mb-6">Supported Tokens</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {tokens.map((token) => (
-              <div key={token.symbol} className="border border-gray-200 rounded-lg p-4 text-center">
-                <div className="text-2xl font-bold text-gray-900">{token.symbol}</div>
-                <div className="text-sm text-gray-600 mt-1">{token.name}</div>
-                <div className="text-xs text-gray-400 mt-2 font-mono">{token.decimals} decimals</div>
+              <div key={token.symbol} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-4 text-center hover:bg-white/10 hover:border-white/20 hover:scale-105 transition-all">
+                <div className="text-2xl font-bold text-white">{token.symbol}</div>
+                <div className="text-sm text-gray-400 mt-1">{token.name}</div>
+                <div className="text-xs text-gray-500 mt-2 font-mono">{token.decimals} decimals</div>
               </div>
             ))}
           </div>

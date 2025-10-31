@@ -34,11 +34,11 @@ const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
 };
 
 const STATUS_COLORS: Record<TransactionStatus, string> = {
-  [TransactionStatus.PENDING]: 'bg-yellow-100 text-yellow-800',
-  [TransactionStatus.CONFIRMED]: 'bg-green-100 text-green-800',
-  [TransactionStatus.FAILED]: 'bg-red-100 text-red-800',
-  [TransactionStatus.CANCELLED]: 'bg-gray-100 text-gray-800',
-  [TransactionStatus.TIMEOUT]: 'bg-orange-100 text-orange-800',
+  [TransactionStatus.PENDING]: 'backdrop-blur-xl bg-yellow-500/20 border border-yellow-500/50 text-yellow-300',
+  [TransactionStatus.CONFIRMED]: 'backdrop-blur-xl bg-green-500/20 border border-green-500/50 text-green-300',
+  [TransactionStatus.FAILED]: 'backdrop-blur-xl bg-red-500/20 border border-red-500/50 text-red-300',
+  [TransactionStatus.CANCELLED]: 'backdrop-blur-xl bg-gray-500/20 border border-gray-500/50 text-gray-300',
+  [TransactionStatus.TIMEOUT]: 'backdrop-blur-xl bg-orange-500/20 border border-orange-500/50 text-orange-300',
 };
 
 export function TransactionList() {
@@ -95,13 +95,12 @@ export function TransactionList() {
   };
 
   return (
-    <div className="w-full space-y-4">
+    <div className="w-full space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Transaction History</h2>
         <button
           onClick={clearFilters}
-          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
+          className="px-4 py-2 text-sm backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl text-gray-300 hover:bg-white/10 hover:border-white/20 transition-all"
         >
           Clear Filters
         </button>
@@ -116,7 +115,7 @@ export function TransactionList() {
             placeholder="Search by signature or token..."
             value={searchInput}
             onChange={(e) => handleSearch(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-3 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
           />
         </div>
 
@@ -125,11 +124,11 @@ export function TransactionList() {
           <select
             value={filters.type || 'all'}
             onChange={(e) => handleTypeFilter(e.target.value as TransactionType | 'all')}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-3 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl text-white focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
           >
-            <option value="all">All Types</option>
+            <option value="all" className="bg-gray-900">All Types</option>
             {Object.entries(TRANSACTION_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
+              <option key={value} value={value} className="bg-gray-900">
                 {label}
               </option>
             ))}
@@ -141,101 +140,75 @@ export function TransactionList() {
           <select
             value={filters.status || 'all'}
             onChange={(e) => handleStatusFilter(e.target.value as TransactionStatus | 'all')}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-3 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl text-white focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
           >
-            <option value="all">All Status</option>
-            <option value={TransactionStatus.PENDING}>Pending</option>
-            <option value={TransactionStatus.CONFIRMED}>Confirmed</option>
-            <option value={TransactionStatus.FAILED}>Failed</option>
-            <option value={TransactionStatus.CANCELLED}>Cancelled</option>
-            <option value={TransactionStatus.TIMEOUT}>Timeout</option>
+            <option value="all" className="bg-gray-900">All Status</option>
+            <option value={TransactionStatus.PENDING} className="bg-gray-900">Pending</option>
+            <option value={TransactionStatus.CONFIRMED} className="bg-gray-900">Confirmed</option>
+            <option value={TransactionStatus.FAILED} className="bg-gray-900">Failed</option>
+            <option value={TransactionStatus.CANCELLED} className="bg-gray-900">Cancelled</option>
+            <option value={TransactionStatus.TIMEOUT} className="bg-gray-900">Timeout</option>
           </select>
         </div>
       </div>
 
       {/* Transaction List */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="space-y-3">
         {paginatedTransactions.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No transactions found
+          <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-12 text-center">
+            <div className="text-gray-300 font-semibold mb-2">No transactions found</div>
+            <p className="text-sm text-gray-400">Your transaction history will appear here</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Details
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Time
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Signature
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {paginatedTransactions.map((tx) => (
-                  <tr
-                    key={tx.signature}
-                    onClick={() => setSelectedTransaction(tx)}
-                    className="hover:bg-gray-50 cursor-pointer"
+          paginatedTransactions.map((tx) => (
+            <div
+              key={tx.signature}
+              onClick={() => setSelectedTransaction(tx)}
+              className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-4 sm:p-6 hover:bg-white/10 hover:border-white/20 hover:scale-[1.01] cursor-pointer transition-all"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-sm font-semibold text-white">
+                      {TRANSACTION_TYPE_LABELS[tx.type]}
+                    </span>
+                    <span
+                      className={`px-3 py-1 inline-flex text-xs font-semibold rounded-full ${
+                        STATUS_COLORS[tx.status]
+                      }`}
+                    >
+                      {tx.status}
+                    </span>
+                  </div>
+                  {tx.tokenIn && tx.tokenOut && (
+                    <div className="flex items-center space-x-2 text-sm text-gray-300">
+                      <span>
+                        {formatAmount(tx.amountIn, tx.tokenIn.decimals)} {tx.tokenIn.symbol}
+                      </span>
+                      <span className="text-gray-500">→</span>
+                      <span>
+                        {formatAmount(tx.amountOut, tx.tokenOut.decimals)} {tx.tokenOut.symbol}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
+                  <span className="text-xs text-gray-400">
+                    {formatDistanceToNow(tx.timestamp)}
+                  </span>
+                  <a
+                    href={getExplorerUrl(tx.signature)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-xs text-blue-400 hover:text-blue-300 font-mono transition-colors"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">
-                        {TRANSACTION_TYPE_LABELS[tx.type]}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">
-                        {tx.tokenIn && tx.tokenOut && (
-                          <div className="flex items-center space-x-2">
-                            <span>
-                              {formatAmount(tx.amountIn, tx.tokenIn.decimals)} {tx.tokenIn.symbol}
-                            </span>
-                            <span className="text-gray-400">→</span>
-                            <span>
-                              {formatAmount(tx.amountOut, tx.tokenOut.decimals)} {tx.tokenOut.symbol}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          STATUS_COLORS[tx.status]
-                        }`}
-                      >
-                        {tx.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDistanceToNow(tx.timestamp)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <a
-                        href={getExplorerUrl(tx.signature)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-sm text-blue-600 hover:text-blue-800 font-mono"
-                      >
-                        {truncateSignature(tx.signature)}
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    {truncateSignature(tx.signature)}
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))
         )}
       </div>
 
