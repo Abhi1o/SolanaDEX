@@ -220,8 +220,11 @@ export class JupiterSwapService {
       };
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('Swap execution failed:', error);
+      const errorMessage = this.parseTransactionError(error);
+      // Only log detailed error in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Swap execution failed:', error);
+      }
       onStatusUpdate?.(TransactionStatus.FAILED, undefined, errorMessage);
       
       return {
@@ -463,30 +466,38 @@ export class JupiterSwapService {
     if (error?.message) {
       const message = error.message.toLowerCase();
       
-      if (message.includes('insufficient funds')) {
+      if (message.includes('insufficient funds') || message.includes('insufficient lamports')) {
         return 'Insufficient SOL balance to pay for transaction fees.';
       }
       
-      if (message.includes('slippage tolerance exceeded')) {
+      if (message.includes('no record of a prior credit') || message.includes('attempt to debit')) {
+        return 'Insufficient token balance or token account not found. Please ensure you have enough balance for this swap.';
+      }
+      
+      if (message.includes('tokenaccountnotfound') || message.includes('token account not found')) {
+        return 'Token account not found. The token account needs to be created first.';
+      }
+      
+      if (message.includes('slippage tolerance exceeded') || message.includes('slippage')) {
         return 'Price moved beyond your slippage tolerance. Try increasing slippage or refreshing the quote.';
       }
       
-      if (message.includes('blockhash not found')) {
+      if (message.includes('blockhash not found') || message.includes('expired')) {
         return 'Transaction expired. Please try again.';
       }
       
-      if (message.includes('user rejected')) {
-        return 'Transaction was rejected by user.';
+      if (message.includes('user rejected') || message.includes('cancelled')) {
+        return 'Transaction was cancelled.';
       }
       
-      if (message.includes('insufficient lamports')) {
-        return 'Insufficient SOL balance for transaction.';
+      if (message.includes('simulation failed')) {
+        return 'Transaction simulation failed. Please check your balance and try again.';
       }
 
       return error.message;
     }
 
-    return 'An unknown error occurred during the swap.';
+    return 'Transaction failed. Please check your balance and try again.';
   }
 }
 

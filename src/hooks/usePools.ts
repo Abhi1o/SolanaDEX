@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { usePoolStore } from '@/stores/poolStore';
-import { usePoolListSubscriptions } from './usePoolUpdates';
+import { usePoolsFromConfig } from './usePoolsFromConfig';
 
 export const usePools = () => {
   const poolStore = usePoolStore();
   
-  // Subscribe to real-time pool updates
-  usePoolListSubscriptions(true);
+  // Load pools from config on mount
+  usePoolsFromConfig();
   
   return {
     ...poolStore,

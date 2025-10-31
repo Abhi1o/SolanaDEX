@@ -1,9 +1,14 @@
-import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { WalletContextState } from '@solana/wallet-adapter-react';
-import { Pool, Token, TransactionStatus, TransactionType } from '@/types';
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { SystemProgram } from '@solana/web3.js';
+import { Pool, TransactionStatus } from '@/types';
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { calculateLiquidityTokens } from '@/utils/calculations';
+import {
+  createAddLiquidityInstruction,
+  createRemoveLiquidityInstruction,
+} from '@/lib/solana/poolInstructions';
+import { findOrCreateATA } from '@/lib/swapInstructions';
+import dexConfig from '@/config/dex-config.json';
 
 export interface LiquidityExecutionResult {
   signature: string;
@@ -77,93 +82,163 @@ export class LiquidityService {
 
   /**
    * Build add liquidity transaction
-   * Note: This requires the actual AMM program instructions
-   * Currently returns a placeholder transaction structure
+   * Uses pool config directly (same pattern as swap)
    */
   async buildAddLiquidityTransaction(
     params: AddLiquidityParams,
     userPublicKey: PublicKey
   ): Promise<Transaction> {
-    const { pool, amountA, amountB } = params;
+    const { pool, amountA, amountB, minLpTokens = BigInt(0) } = params;
     
+    if (!this.programId) {
+      throw new Error('Program ID not configured. Use getLiquidityService(connection, programId).');
+    }
+
+    // Find pool config from dex-config.json (same as swap does)
+    const poolConfig = dexConfig.pools.find(p => p.poolAddress === pool.id);
+    if (!poolConfig) {
+      throw new Error(`Pool config not found for ${pool.id}`);
+    }
+
     const transaction = new Transaction();
+    const poolAddress = new PublicKey(poolConfig.poolAddress);
+    const poolAuthority = new PublicKey(poolConfig.authority);
+    const poolTokenAccountA = new PublicKey(poolConfig.tokenAccountA);
+    const poolTokenAccountB = new PublicKey(poolConfig.tokenAccountB);
+    const lpTokenMint = new PublicKey(poolConfig.poolTokenMint);
+    const feeAccount = new PublicKey(poolConfig.feeAccount);
+    const tokenAMint = new PublicKey(poolConfig.tokenA);
+    const tokenBMint = new PublicKey(poolConfig.tokenB);
     
-    // Get user's token accounts
-    const userTokenAAccount = await getAssociatedTokenAddress(
-      new PublicKey(pool.tokenA.mint),
-      userPublicKey
+    // Get or create user's token accounts (same pattern as swap)
+    const userTokenAAccount = await findOrCreateATA(
+      this.connection,
+      userPublicKey,
+      tokenAMint,
+      userPublicKey,
+      transaction
     );
     
-    const userTokenBAccount = await getAssociatedTokenAddress(
-      new PublicKey(pool.tokenB.mint),
-      userPublicKey
-    );
-    
-    // Get user's LP token account (will be created if needed)
-    const userLpTokenAccount = await getAssociatedTokenAddress(
-      pool.lpTokenMint,
-      userPublicKey
+    const userTokenBAccount = await findOrCreateATA(
+      this.connection,
+      userPublicKey,
+      tokenBMint,
+      userPublicKey,
+      transaction
     );
 
-    // TODO: Add actual AMM program instructions here
-    // The structure would typically be:
-    // 1. Ensure LP token account exists (create if needed)
-    // 2. Transfer token A to pool
-    // 3. Transfer token B to pool
-    // 4. Call AMM program's add_liquidity instruction
-    // 5. Mint LP tokens to user
+    const userLpTokenAccount = await findOrCreateATA(
+      this.connection,
+      userPublicKey,
+      lpTokenMint,
+      userPublicKey,
+      transaction
+    );
 
-    // For now, we'll create a placeholder that shows the structure
-    // In production, you would add instructions like:
-    // transaction.add(
-    //   createAddLiquidityInstruction({
-    //     pool: pool.id,
-    //     user: userPublicKey,
-    //     tokenA: userTokenAAccount,
-    //     tokenB: userTokenBAccount,
-    //     lpToken: userLpTokenAccount,
-    //     amountA,
-    //     amountB,
-    //     programId: this.programId,
-    //   })
-    // );
+    // Add the add liquidity instruction with all required accounts
+    const addLiquidityIx = createAddLiquidityInstruction(
+      this.programId,
+      poolAddress,
+      poolAuthority,
+      poolTokenAccountA,
+      poolTokenAccountB,
+      lpTokenMint,
+      feeAccount,
+      tokenAMint,
+      tokenBMint,
+      userPublicKey,
+      userTokenAAccount,
+      userTokenBAccount,
+      userLpTokenAccount,
+      amountA,
+      amountB,
+      minLpTokens
+    );
+
+    transaction.add(addLiquidityIx);
+
+    // Set recent blockhash and fee payer
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
 
     return transaction;
   }
 
   /**
    * Build remove liquidity transaction
+   * Uses pool config directly (same pattern as swap)
    */
   async buildRemoveLiquidityTransaction(
     params: RemoveLiquidityParams,
     userPublicKey: PublicKey
   ): Promise<Transaction> {
-    const { pool, lpTokenAmount } = params;
+    const { pool, lpTokenAmount, minTokenA = BigInt(0), minTokenB = BigInt(0) } = params;
     
+    if (!this.programId) {
+      throw new Error('Program ID not configured. Use getLiquidityService(connection, programId).');
+    }
+
+    // Find pool config from dex-config.json (same as swap does)
+    const poolConfig = dexConfig.pools.find(p => p.poolAddress === pool.id);
+    if (!poolConfig) {
+      throw new Error(`Pool config not found for ${pool.id}`);
+    }
+
     const transaction = new Transaction();
+    const poolAddress = new PublicKey(poolConfig.poolAddress);
+    const poolAuthority = new PublicKey(poolConfig.authority);
+    const poolTokenAccountA = new PublicKey(poolConfig.tokenAccountA);
+    const poolTokenAccountB = new PublicKey(poolConfig.tokenAccountB);
+    const lpTokenMint = new PublicKey(poolConfig.poolTokenMint);
+    const feeAccount = new PublicKey(poolConfig.feeAccount);
+    const tokenAMint = new PublicKey(poolConfig.tokenA);
+    const tokenBMint = new PublicKey(poolConfig.tokenB);
     
-    // Get user's token accounts
+    // Get user's token accounts (they should exist if removing liquidity)
     const userTokenAAccount = await getAssociatedTokenAddress(
-      new PublicKey(pool.tokenA.mint),
+      tokenAMint,
       userPublicKey
     );
     
     const userTokenBAccount = await getAssociatedTokenAddress(
-      new PublicKey(pool.tokenB.mint),
+      tokenBMint,
       userPublicKey
     );
     
     const userLpTokenAccount = await getAssociatedTokenAddress(
-      pool.lpTokenMint,
+      lpTokenMint,
       userPublicKey
     );
 
-    // TODO: Add actual AMM program instructions here
-    // The structure would typically be:
-    // 1. Burn LP tokens from user
-    // 2. Call AMM program's remove_liquidity instruction
-    // 3. Transfer token A from pool to user
-    // 4. Transfer token B from pool to user
+    // Add the remove liquidity instruction with all required accounts
+    const removeLiquidityIx = createRemoveLiquidityInstruction(
+      this.programId,
+      poolAddress,
+      poolAuthority,
+      poolTokenAccountA,
+      poolTokenAccountB,
+      lpTokenMint,
+      feeAccount,
+      tokenAMint,
+      tokenBMint,
+      userPublicKey,
+      userTokenAAccount,
+      userTokenBAccount,
+      userLpTokenAccount,
+      lpTokenAmount,
+      minTokenA,
+      minTokenB
+    );
+
+    transaction.add(removeLiquidityIx);
+
+    // Set recent blockhash and fee payer
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
 
     return transaction;
   }

@@ -240,61 +240,18 @@ class ShardedDexService {
       const amountIn = BigInt(Math.floor(quote.inputAmount * Math.pow(10, inputTokenConfig.decimals)));
       const minimumAmountOut = BigInt(Math.floor(minOutput * Math.pow(10, outputTokenConfig.decimals)));
 
-      // Check user's token balance before attempting swap
-      try {
-        const { getAssociatedTokenAddress, getAccount } = await import('@solana/spl-token');
-        const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
-
-        const userInputATA = await getAssociatedTokenAddress(
-          new PublicKey(inputTokenConfig.mint),
-          wallet,
-          false,
-          TOKEN_PROGRAM_ID
-        );
-
-        console.log(`  Checking balance for ${inputTokenConfig.symbol}...`);
-
-        const accountInfo = await getAccount(
-          this.connection,
-          userInputATA,
-          'confirmed',
-          TOKEN_PROGRAM_ID
-        );
-
-        const userBalance = Number(accountInfo.amount) / Math.pow(10, inputTokenConfig.decimals);
-        console.log(`  Current balance: ${userBalance} ${inputTokenConfig.symbol}`);
-
-        if (userBalance < quote.inputAmount) {
-          throw new Error(
-            `Insufficient ${inputTokenConfig.symbol} balance.\n\n` +
-            `Required: ${quote.inputAmount} ${inputTokenConfig.symbol}\n` +
-            `Available: ${userBalance} ${inputTokenConfig.symbol}\n\n` +
-            `Please get devnet tokens from:\n` +
-            `• Solana Faucet: https://faucet.solana.com/\n` +
-            `• SPL Token Faucet for test tokens`
-          );
-        }
-
-        console.log(`  ✓ Balance check passed`);
-      } catch (err: any) {
-        if (err.message && err.message.includes('Insufficient')) {
-          throw err;
-        }
-        // Token account doesn't exist
-        throw new Error(
-          `${inputTokenConfig.symbol} token account not found.\n\n` +
-          `You need to:\n` +
-          `1. Get devnet SOL from https://faucet.solana.com/\n` +
-          `2. Create ${inputTokenConfig.symbol} token account\n` +
-          `3. Mint/receive test ${inputTokenConfig.symbol} tokens\n\n` +
-          `Current wallet: ${wallet.toBase58()}`
-        );
-      }
+      // Optional: Check user's token balance before attempting swap
+      // Commented out for now to see actual transaction errors
+      console.log(`  Skipping balance check - will validate during transaction`);
+      console.log(`  Swap amount: ${quote.inputAmount} ${inputTokenConfig.symbol}`);
 
       // Import swap instruction builder
       const { buildSimpleSwapTransaction } = await import('./swapInstructions');
 
-      // Build the transaction
+      // Determine which token is A and which is B based on pool configuration
+      const isInputTokenA = pool.tokenA === inputTokenConfig.mint;
+      
+      // Build the transaction with all required accounts
       const transaction = await buildSimpleSwapTransaction(
         this.connection,
         this.programId,
@@ -305,11 +262,20 @@ class ShardedDexService {
         new PublicKey(outputTokenConfig.mint),
         new PublicKey(pool.tokenAccountA),
         new PublicKey(pool.tokenAccountB),
+        new PublicKey(pool.poolTokenMint),
+        new PublicKey(pool.feeAccount),
+        new PublicKey(pool.tokenA),
+        new PublicKey(pool.tokenB),
         amountIn,
         minimumAmountOut
       );
 
       console.log('📝 Transaction built successfully');
+      console.log('   Transaction details:', {
+        instructions: transaction.instructions.length,
+        feePayer: transaction.feePayer?.toBase58(),
+        recentBlockhash: transaction.recentBlockhash
+      });
       console.log('🔐 Requesting wallet signature...');
 
       // Sign the transaction with wallet
@@ -317,6 +283,7 @@ class ShardedDexService {
 
       console.log('✅ Transaction signed');
       console.log('📤 Sending transaction to Solana...');
+      console.log('   Preflight checks enabled');
 
       // Send the signed transaction
       const signature = await this.connection.sendRawTransaction(
@@ -327,6 +294,8 @@ class ShardedDexService {
           maxRetries: 3,
         }
       );
+      
+      console.log('✅ Transaction sent to network');
 
       console.log('⏳ Confirming transaction...');
       console.log(`   Signature: ${signature}`);
@@ -351,19 +320,32 @@ class ShardedDexService {
       return signature;
 
     } catch (error) {
+      // Log the full error for debugging
       console.error('❌ Swap execution error:', error);
-
+      console.error('Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       // Provide helpful error messages
       if (error instanceof Error) {
-        if (error.message.includes('User rejected')) {
+        const message = error.message.toLowerCase();
+        
+        if (message.includes('user rejected') || message.includes('cancelled')) {
           throw new Error('Transaction cancelled by user');
-        } else if (error.message.includes('insufficient funds')) {
+        } else if (message.includes('insufficient funds') || message.includes('insufficient lamports')) {
           throw new Error('Insufficient SOL for transaction fees');
-        } else if (error.message.includes('TokenAccountNotFoundError')) {
+        } else if (message.includes('no record of a prior credit') || message.includes('attempt to debit')) {
+          throw new Error('Insufficient token balance or token account not found. Please ensure you have enough balance.');
+        } else if (message.includes('tokenaccountnotfound') || message.includes('token account not found')) {
           throw new Error('Token account not found. Please ensure you have the input token.');
+        } else if (message.includes('simulation failed')) {
+          throw new Error('Transaction simulation failed. Please check your balance and try again.');
         }
       }
 
+      // Re-throw the original error with more context
       throw error;
     }
   }

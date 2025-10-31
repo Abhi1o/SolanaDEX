@@ -21,8 +21,8 @@ import {
  * These are typically the first 8 bytes of the instruction data
  */
 const INSTRUCTION_DISCRIMINATORS = {
-  SWAP: 0, // Swap instruction discriminator
-  ADD_LIQUIDITY: 1,
+  SWAP: 1, // Swap instruction discriminator (matches on-chain program)
+  ADD_LIQUIDITY: 0,
   REMOVE_LIQUIDITY: 2,
 };
 
@@ -176,6 +176,7 @@ export async function buildSwapTransaction(
 /**
  * Alternative: Simple swap instruction builder for testing
  * Uses a more basic instruction format that might match simpler AMM programs
+ * This matches the working on-chain program implementation
  */
 export function createSimpleSwapInstruction(
   programId: PublicKey,
@@ -186,23 +187,35 @@ export function createSimpleSwapInstruction(
   userTokenAccountOut: PublicKey,
   poolTokenAccountA: PublicKey,
   poolTokenAccountB: PublicKey,
+  poolTokenMint: PublicKey,
+  feeAccount: PublicKey,
+  tokenAMint: PublicKey,
+  tokenBMint: PublicKey,
   amountIn: bigint,
   minimumAmountOut: bigint
 ): TransactionInstruction {
-  // Simple instruction data: [discriminator (1 byte), amountIn (8 bytes), minAmountOut (8 bytes)]
+  // Instruction data format matching the on-chain program:
+  // [discriminator (1 byte), amountIn (8 bytes), minAmountOut (8 bytes)]
   const data = Buffer.alloc(17);
   data.writeUInt8(INSTRUCTION_DISCRIMINATORS.SWAP, 0);
   data.writeBigUInt64LE(amountIn, 1);
   data.writeBigUInt64LE(minimumAmountOut, 9);
 
+  // Account order MUST match the on-chain program exactly
   const keys = [
-    { pubkey: user, isSigner: true, isWritable: true },
-    { pubkey: poolAddress, isSigner: false, isWritable: true },
+    { pubkey: poolAddress, isSigner: false, isWritable: false },
     { pubkey: poolAuthority, isSigner: false, isWritable: false },
+    { pubkey: user, isSigner: true, isWritable: false },
     { pubkey: userTokenAccountIn, isSigner: false, isWritable: true },
-    { pubkey: userTokenAccountOut, isSigner: false, isWritable: true },
     { pubkey: poolTokenAccountA, isSigner: false, isWritable: true },
     { pubkey: poolTokenAccountB, isSigner: false, isWritable: true },
+    { pubkey: userTokenAccountOut, isSigner: false, isWritable: true },
+    { pubkey: poolTokenMint, isSigner: false, isWritable: true },
+    { pubkey: feeAccount, isSigner: false, isWritable: true },
+    { pubkey: tokenAMint, isSigner: false, isWritable: false },
+    { pubkey: tokenBMint, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
   ];
 
@@ -215,6 +228,7 @@ export function createSimpleSwapInstruction(
 
 /**
  * Build simple swap transaction (for testing with basic AMM programs)
+ * This matches the working on-chain program implementation
  */
 export async function buildSimpleSwapTransaction(
   connection: Connection,
@@ -226,6 +240,10 @@ export async function buildSimpleSwapTransaction(
   outputMint: PublicKey,
   poolTokenAccountA: PublicKey,
   poolTokenAccountB: PublicKey,
+  poolTokenMint: PublicKey,
+  feeAccount: PublicKey,
+  tokenAMint: PublicKey,
+  tokenBMint: PublicKey,
   amountIn: bigint,
   minimumAmountOut: bigint
 ): Promise<Transaction> {
@@ -248,7 +266,7 @@ export async function buildSimpleSwapTransaction(
     transaction
   );
 
-  // Create simple swap instruction
+  // Create simple swap instruction with all required accounts
   const swapInstruction = createSimpleSwapInstruction(
     programId,
     user,
@@ -258,6 +276,10 @@ export async function buildSimpleSwapTransaction(
     userTokenAccountOut,
     poolTokenAccountA,
     poolTokenAccountB,
+    poolTokenMint,
+    feeAccount,
+    tokenAMint,
+    tokenBMint,
     amountIn,
     minimumAmountOut
   );

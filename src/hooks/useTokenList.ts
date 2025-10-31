@@ -5,8 +5,12 @@ import { PublicKey } from '@solana/web3.js';
 import { Token, TokenListResponse } from '@/types';
 import { useSolanaConnection } from './useSolanaConnection';
 
-// Solana Token Registry URL
-const SOLANA_TOKEN_LIST_URL = 'https://token.jup.ag/strict';
+// Solana Token Registry URLs (with fallbacks)
+const TOKEN_LIST_URLS = [
+  'https://token.jup.ag/strict',
+  'https://tokens.jup.ag/all',
+  'https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json',
+];
 
 // Popular Solana tokens for fallback
 const POPULAR_TOKENS: Token[] = [
@@ -75,48 +79,69 @@ export function useTokenList(): UseTokenListReturn {
     localStorage.setItem('solana-dex-favorite-tokens', JSON.stringify(favorites));
   }, []);
 
-  // Fetch token list from Solana Token Registry
+  // Fetch token list from Solana Token Registry with fallbacks
   const fetchTokenList = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
-      const response = await fetch(SOLANA_TOKEN_LIST_URL);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch token list: ${response.statusText}`);
-      }
+    // Try each URL until one succeeds
+    for (const url of TOKEN_LIST_URLS) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      const data: TokenListResponse = await response.json();
-      
-      // Transform tokens to our format
-      const transformedTokens: Token[] = data.tokens.map(token => ({
-        mint: token.address || token.mint,
-        address: token.address || token.mint,
-        symbol: token.symbol,
-        name: token.name,
-        decimals: token.decimals,
-        logoURI: token.logoURI,
-        tags: token.tags,
-        extensions: token.extensions
-      }));
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json',
+          },
+        });
 
-      // Merge with popular tokens, avoiding duplicates
-      const allTokens = [...POPULAR_TOKENS];
-      transformedTokens.forEach(token => {
-        if (!allTokens.find(existing => existing.mint === token.mint)) {
-          allTokens.push(token);
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          continue; // Try next URL
         }
-      });
 
-      setTokens(allTokens);
-    } catch (err) {
-      console.error('Failed to fetch token list:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch token list');
-      // Keep popular tokens as fallback
-      setTokens(POPULAR_TOKENS);
-    } finally {
-      setLoading(false);
+        const data: TokenListResponse = await response.json();
+        
+        // Transform tokens to our format
+        const transformedTokens: Token[] = (data.tokens || []).map(token => ({
+          mint: token.address || token.mint,
+          address: token.address || token.mint,
+          symbol: token.symbol,
+          name: token.name,
+          decimals: token.decimals,
+          logoURI: token.logoURI,
+          tags: token.tags,
+          extensions: token.extensions
+        }));
+
+        // Merge with popular tokens, avoiding duplicates
+        const allTokens = [...POPULAR_TOKENS];
+        transformedTokens.forEach(token => {
+          if (!allTokens.find(existing => existing.mint === token.mint)) {
+            allTokens.push(token);
+          }
+        });
+
+        setTokens(allTokens);
+        setLoading(false);
+        return; // Success, exit function
+      } catch (err) {
+        // Continue to next URL if this one fails
+        if (err instanceof Error && err.name !== 'AbortError') {
+          // Only log non-timeout errors
+          continue;
+        }
+      }
     }
+
+    // All URLs failed - use fallback
+    console.warn('Token list API unavailable, using fallback tokens');
+    setTokens(POPULAR_TOKENS);
+    setError(null); // Don't show error to user, fallback works
+    setLoading(false);
   }, []);
 
   // Initial token list fetch

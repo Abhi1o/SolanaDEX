@@ -202,7 +202,7 @@ export function RemoveLiquidity({ pool, isOpen, onClose, onLiquidityRemoved }: R
       const minTokenA = state.tokenAToReceive * BigInt(99) / BigInt(100);
       const minTokenB = state.tokenBToReceive * BigInt(99) / BigInt(100);
 
-      const liquidityService = getLiquidityService(connection);
+      const liquidityService = getLiquidityService(connection, pool.programId);
 
       const result = await liquidityService.removeLiquidity(
         {

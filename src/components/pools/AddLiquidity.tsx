@@ -261,7 +261,7 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
         throw new Error('Connection or wallet not available');
       }
 
-      const liquidityService = getLiquidityService(connection);
+      const liquidityService = getLiquidityService(connection, pool.programId);
       
       // Calculate min LP tokens (with 1% slippage tolerance)
       const minLpTokens = state.lpTokensToReceive * BigInt(99) / BigInt(100);
