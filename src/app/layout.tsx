@@ -13,8 +13,8 @@ import { MonitoringProvider } from './providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Solana DEX - Decentralized Exchange',
-  description: 'A decentralized exchange frontend built with Next.js and Solana',
+  title: 'Rocket Sharded Amm - Sharded Liquidity Pools on Solana',
+  description: 'A high-performance decentralized exchange with sharded liquidity pools on Solana. Swap tokens with optimal routing across multiple pool shards.',
   viewport: 'width=device-width, initial-scale=1, maximum-scale=5',
 }
 

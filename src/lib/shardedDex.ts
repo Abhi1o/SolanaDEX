@@ -156,20 +156,25 @@ class ShardedDexService {
     let bestPriceImpact = Infinity;
 
     for (const shard of shards) {
-      const reserveIn = BigInt(isForward ? shard.liquidityA : shard.liquidityB);
-      const reserveOut = BigInt(isForward ? shard.liquidityB : shard.liquidityA);
+      // Use config values for reserves (simpler and faster)
+      const reserveInHuman = parseFloat(isForward ? shard.liquidityA : shard.liquidityB);
+      const reserveOutHuman = parseFloat(isForward ? shard.liquidityB : shard.liquidityA);
+      
+      // Convert reserves to base units
+      const reserveInBase = BigInt(Math.floor(reserveInHuman * Math.pow(10, inputToken.decimals)));
+      const reserveOutBase = BigInt(Math.floor(reserveOutHuman * Math.pow(10, outputToken.decimals)));
 
       const outputAmount = this.calculateSwapOutput(
         inputAmountBase,
-        reserveIn * BigInt(Math.pow(10, inputToken.decimals)),
-        reserveOut * BigInt(Math.pow(10, outputToken.decimals))
+        reserveInBase,
+        reserveOutBase
       );
 
       const priceImpact = this.calculatePriceImpact(
         inputAmountBase,
         outputAmount,
-        reserveIn * BigInt(Math.pow(10, inputToken.decimals)),
-        reserveOut * BigInt(Math.pow(10, outputToken.decimals))
+        reserveInBase,
+        reserveOutBase
       );
 
       if (outputAmount > bestOutput || (outputAmount === bestOutput && priceImpact < bestPriceImpact)) {
@@ -211,9 +216,6 @@ class ShardedDexService {
     try {
       const wallet = walletAdapter.publicKey;
 
-      // Calculate minimum output with slippage
-      const minOutput = quote.estimatedOutput * (1 - slippageTolerance / 100);
-
       // Get pool information
       const pool = dexConfig.pools.find(p => p.poolAddress === quote.route[0].poolAddress);
       if (!pool) {
@@ -227,6 +229,13 @@ class ShardedDexService {
       if (!inputTokenConfig || !outputTokenConfig) {
         throw new Error('Token configuration not found');
       }
+
+      // Calculate minimum output with slippage
+      const minOutput = quote.estimatedOutput * (1 - slippageTolerance / 100);
+      
+      console.log(`  Slippage tolerance: ${slippageTolerance}%`);
+      console.log(`  Estimated output: ${quote.estimatedOutput} ${outputTokenConfig.symbol}`);
+      console.log(`  Minimum output: ${minOutput} ${outputTokenConfig.symbol}`);
 
       console.log('🔄 Building Swap Transaction...');
       console.log(`  Pool: ${pool.poolAddress}`);
@@ -250,6 +259,10 @@ class ShardedDexService {
 
       // Determine which token is A and which is B based on pool configuration
       const isInputTokenA = pool.tokenA === inputTokenConfig.mint;
+      
+      console.log(`  Swap direction: ${inputTokenConfig.symbol} → ${outputTokenConfig.symbol}`);
+      console.log(`  Pool tokens: ${pool.tokenASymbol} (A) / ${pool.tokenBSymbol} (B)`);
+      console.log(`  Is forward swap (A→B): ${isInputTokenA}`);
       
       // Build the transaction with all required accounts
       const transaction = await buildSimpleSwapTransaction(

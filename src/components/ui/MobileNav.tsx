@@ -2,8 +2,8 @@
 
 import React, { Fragment, useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { 
-  XMarkIcon, 
+import {
+  XMarkIcon,
   Bars3Icon,
   HomeIcon,
   ArrowsRightLeftIcon,
@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletConnectButton } from '../wallet/WalletConnectButton';
+import { RocketLogo } from './RocketLogo';
 
 const navigation = [
   { name: 'Home', href: '/', icon: HomeIcon },
@@ -90,8 +91,11 @@ export function MobileNav() {
 
                 {/* Sidebar content */}
                 <div className="flex grow flex-col gap-y-5 overflow-y-auto backdrop-blur-xl bg-black/95 px-6 pb-4">
-                  <div className="flex h-16 shrink-0 items-center">
-                    <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Solana DEX</h1>
+                  <div className="flex h-16 shrink-0 items-center gap-3">
+                    <RocketLogo size="md" className="text-white" />
+                    <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">
+                      Rocket Sharded Amm
+                    </h1>
                   </div>
                   
                   <nav className="flex flex-1 flex-col">

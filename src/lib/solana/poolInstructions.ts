@@ -77,15 +77,18 @@ export function createAddLiquidityInstruction(
 ): TransactionInstruction {
   const data = buildAddLiquidityInstructionData(amountA, amountB, minLpTokens);
 
-  // Account order matching the swap instruction pattern
+  // Account order MUST match on-chain program exactly
+  // Matching swap pattern that works: pool, authority, user, userTokenIn, poolA, poolB, userTokenOut, mint, fee, mints, token programs
+  // For add liquidity: user sends tokenA and tokenB, receives LP tokens
   const keys = [
     { pubkey: poolAddress, isSigner: false, isWritable: false },
     { pubkey: poolAuthority, isSigner: false, isWritable: false },
     { pubkey: userAuthority, isSigner: true, isWritable: false },
-    { pubkey: userTokenAccountA, isSigner: false, isWritable: true },
+    { pubkey: userTokenAccountA, isSigner: false, isWritable: true },  // User sends token A
     { pubkey: poolTokenAccountA, isSigner: false, isWritable: true },
     { pubkey: poolTokenAccountB, isSigner: false, isWritable: true },
-    { pubkey: userTokenAccountB, isSigner: false, isWritable: true },
+    { pubkey: userTokenAccountB, isSigner: false, isWritable: true },  // User sends token B
+    { pubkey: userLpTokenAccount, isSigner: false, isWritable: true },  // User receives LP (similar to userTokenOut in swap)
     { pubkey: lpTokenMint, isSigner: false, isWritable: true },
     { pubkey: feeAccount, isSigner: false, isWritable: true },
     { pubkey: tokenAMint, isSigner: false, isWritable: false },

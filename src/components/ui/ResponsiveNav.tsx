@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
+import {
   HomeIcon,
   ArrowsRightLeftIcon,
   BeakerIcon,
@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { WalletConnectButton } from '../wallet/WalletConnectButton';
 import { MobileNav } from './MobileNav';
+import { RocketLogo } from './RocketLogo';
 import { motion } from 'framer-motion';
 
 const navigation = [
@@ -39,12 +40,15 @@ export function ResponsiveNav() {
           {/* Logo and desktop navigation */}
           <div className="flex items-center flex-1">
             <div className="flex-shrink-0 flex items-center">
-              <Link 
-                href="/" 
-                className="text-xl font-semibold text-white hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black rounded transition-colors duration-200"
-                aria-label="Solana DEX Home"
+              <Link
+                href="/"
+                className="flex items-center gap-3 text-xl font-bold text-white hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black rounded-lg px-2 py-1 transition-all duration-200 group"
+                aria-label="Rocket Sharded Amm Home"
               >
-                Solana DEX
+                <RocketLogo size="md" className="text-white group-hover:scale-110 transition-transform duration-200" />
+                <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                  Rocket Sharded Amm
+                </span>
               </Link>
             </div>
             

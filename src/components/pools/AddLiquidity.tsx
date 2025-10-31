@@ -12,6 +12,8 @@ import { validatePoolCreation, hasSufficientSolForPoolCreation } from '@/utils/p
 import { getLiquidityService } from '@/services/liquidityService';
 import { TransactionStatus, TransactionType } from '@/types';
 import { useTransactionStore } from '@/stores/transactionStore';
+import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID, getAccount } from '@solana/spl-token';
 
 interface AddLiquidityProps {
   pool: Pool | null;
@@ -29,7 +31,7 @@ interface LiquidityState {
 }
 
 export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiquidityProps) {
-  const { isConnected, tokenBalances, solBalance, solanaWallet } = useWallet();
+  const { isConnected, tokenBalances, solBalance, solanaWallet, publicKey } = useWallet();
   const { connection } = useConnection();
   const { addTransaction } = useTransactionStore();
   
@@ -44,6 +46,7 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [poolTokenBalances, setPoolTokenBalances] = useState<Record<string, bigint>>({});
 
   // Reset state when dialog opens/closes or pool changes
   useEffect(() => {
@@ -57,19 +60,110 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
       });
       setError(null);
       setValidationErrors({});
+      setPoolTokenBalances({});
     }
   }, [isOpen, pool]);
 
-  // Get token balances
+  // Fetch balances for pool tokens (same pattern as swap)
+  useEffect(() => {
+    if (!pool || !isConnected || !publicKey || !connection) {
+      setPoolTokenBalances({});
+      return;
+    }
+
+    const fetchPoolTokenBalances = async () => {
+      const balances: Record<string, bigint> = {};
+
+      try {
+        const nativeSOLMint = 'So11111111111111111111111111111111111111112';
+
+        // Fetch Token A balance
+        if (pool.tokenA.mint === nativeSOLMint) {
+          // Native SOL - use connection.getBalance
+          const solBal = await connection.getBalance(publicKey);
+          balances[nativeSOLMint] = BigInt(solBal);
+        } else {
+          // SPL Token (including wrapped SOL and other tokens)
+          try {
+            const tokenAMint = new PublicKey(pool.tokenA.mint);
+            const tokenAATA = await getAssociatedTokenAddress(
+              tokenAMint,
+              publicKey
+            );
+            const tokenAAccount = await getAccount(connection, tokenAATA, 'confirmed', TOKEN_PROGRAM_ID);
+            balances[pool.tokenA.mint] = BigInt(tokenAAccount.amount);
+          } catch (error) {
+            // Token account doesn't exist - balance is 0
+            balances[pool.tokenA.mint] = BigInt(0);
+          }
+        }
+
+        // Fetch Token B balance
+        if (pool.tokenB.mint === nativeSOLMint) {
+          // Native SOL - use connection.getBalance
+          const solBal = await connection.getBalance(publicKey);
+          balances[nativeSOLMint] = BigInt(solBal);
+        } else {
+          // SPL Token (including wrapped SOL and other tokens)
+          try {
+            const tokenBMint = new PublicKey(pool.tokenB.mint);
+            const tokenBATA = await getAssociatedTokenAddress(
+              tokenBMint,
+              publicKey
+            );
+            const tokenBAccount = await getAccount(connection, tokenBATA, 'confirmed', TOKEN_PROGRAM_ID);
+            balances[pool.tokenB.mint] = BigInt(tokenBAccount.amount);
+          } catch (error) {
+            // Token account doesn't exist - balance is 0
+            balances[pool.tokenB.mint] = BigInt(0);
+          }
+        }
+
+        setPoolTokenBalances(balances);
+      } catch (error) {
+        console.error('Failed to fetch pool token balances:', error);
+        setPoolTokenBalances({});
+      }
+    };
+
+    fetchPoolTokenBalances();
+
+    // Refresh balances periodically
+    const interval = setInterval(fetchPoolTokenBalances, 10000); // Every 10 seconds
+    return () => clearInterval(interval);
+  }, [pool, isConnected, publicKey, connection]);
+
+  // Get token balances - use pool-specific balances first, fallback to global tokenBalances
   const tokenABalance = useMemo(() => {
-    if (!pool || !tokenBalances) return BigInt(0);
+    if (!pool) return BigInt(0);
+    // Check pool-specific balances first
+    if (poolTokenBalances[pool.tokenA.mint] !== undefined) {
+      return poolTokenBalances[pool.tokenA.mint];
+    }
+    // Fallback to global tokenBalances
+    if (tokenBalances) {
     return tokenBalances[pool.tokenA.mint] || BigInt(0);
-  }, [pool, tokenBalances]);
+    }
+    return BigInt(0);
+  }, [pool, poolTokenBalances, tokenBalances]);
 
   const tokenBBalance = useMemo(() => {
-    if (!pool || !tokenBalances) return BigInt(0);
+    if (!pool) return BigInt(0);
+    // Check pool-specific balances first
+    if (poolTokenBalances[pool.tokenB.mint] !== undefined) {
+      return poolTokenBalances[pool.tokenB.mint];
+    }
+    // For SOL symbol, also check native SOL mint (in case pool uses wrapped SOL but user has native)
+    const nativeSOLMint = 'So11111111111111111111111111111111111111112';
+    if (pool.tokenB.symbol === 'SOL' && poolTokenBalances[nativeSOLMint] !== undefined) {
+      return poolTokenBalances[nativeSOLMint];
+    }
+    // Fallback to global tokenBalances
+    if (tokenBalances) {
     return tokenBalances[pool.tokenB.mint] || BigInt(0);
-  }, [pool, tokenBalances]);
+    }
+    return BigInt(0);
+  }, [pool, poolTokenBalances, tokenBalances]);
 
   // Calculate current pool ratio
   const poolRatio = useMemo(() => {
@@ -299,7 +393,7 @@ export function AddLiquidity({ pool, isOpen, onClose, onLiquidityAdded }: AddLiq
           solFee: BigInt(5000), // Estimated
         });
         
-        onClose();
+      onClose();
       } else {
         setError(result.error || 'Failed to add liquidity');
       }

@@ -30,7 +30,12 @@ export function SwapSuccessModal({
       // Trigger confetti animation
       const duration = 3000;
       const animationEnd = Date.now() + duration;
-      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+      const defaults = {
+        startVelocity: 30,
+        spread: 360,
+        ticks: 60,
+        zIndex: 9999,
+      };
 
       function randomInRange(min: number, max: number) {
         return Math.random() * (max - min) + min;
@@ -108,7 +113,11 @@ export function SwapSuccessModal({
                     <motion.svg
                       initial={{ pathLength: 0 }}
                       animate={{ pathLength: 1 }}
-                      transition={{ delay: 0.4, duration: 0.6, ease: "easeOut" }}
+                      transition={{
+                        delay: 0.4,
+                        duration: 0.6,
+                        ease: "easeOut",
+                      }}
                       className="w-12 h-12 text-white"
                       fill="none"
                       strokeWidth="3"
@@ -156,7 +165,7 @@ export function SwapSuccessModal({
                         {inputAmount} {inputToken}
                       </span>
                     </div>
-                    
+
                     <div className="flex items-center justify-center">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
                         <svg
@@ -176,7 +185,9 @@ export function SwapSuccessModal({
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-400 text-sm">You Received</span>
+                      <span className="text-gray-400 text-sm">
+                        You Received
+                      </span>
                       <span className="text-green-400 font-semibold">
                         {outputAmount.toFixed(6)} {outputToken}
                       </span>
