@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   HomeIcon,
@@ -13,7 +14,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { WalletConnectButton } from '../wallet/WalletConnectButton';
 import { MobileNav } from './MobileNav';
-import { RocketLogo } from './RocketLogo';
 import { motion } from 'framer-motion';
 
 const navigation = [
@@ -45,7 +45,13 @@ export function ResponsiveNav() {
                 className="flex items-center gap-3 text-xl font-bold text-white hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-black rounded-lg px-2 py-1 transition-all duration-200 group"
                 aria-label="Rocket Sharded Amm Home"
               >
-                <RocketLogo size="md" className="text-white group-hover:scale-110 transition-transform duration-200" />
+                <Image
+                  src="/logo.png"
+                  alt="Rocket Logo"
+                  width={32}
+                  height={32}
+                  className="group-hover:scale-110 transition-transform duration-200"
+                />
                 <span className="bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
                   Rocket Sharded Amm
                 </span>
@@ -54,7 +60,7 @@ export function ResponsiveNav() {
             
             {/* Desktop navigation */}
             <div className="hidden lg:ml-12 lg:flex lg:items-center lg:space-x-1" role="menubar">
-              {navigation.map((item, index) => {
+              {navigation.map((item) => {
                 const isActive = pathname === item.href;
                 return (
                   <Link

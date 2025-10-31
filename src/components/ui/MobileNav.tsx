@@ -13,9 +13,9 @@ import {
   CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { WalletConnectButton } from '../wallet/WalletConnectButton';
-import { RocketLogo } from './RocketLogo';
 
 const navigation = [
   { name: 'Home', href: '/', icon: HomeIcon },
@@ -92,7 +92,12 @@ export function MobileNav() {
                 {/* Sidebar content */}
                 <div className="flex grow flex-col gap-y-5 overflow-y-auto backdrop-blur-xl bg-black/95 px-6 pb-4">
                   <div className="flex h-16 shrink-0 items-center gap-3">
-                    <RocketLogo size="md" className="text-white" />
+                    <Image
+                      src="/logo.png"
+                      alt="Rocket Logo"
+                      width={32}
+                      height={32}
+                    />
                     <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">
                       Rocket Sharded Amm
                     </h1>

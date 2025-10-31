@@ -158,21 +158,11 @@ export function ShardedSwapInterface() {
                     />
                   </svg>
                 </button>
-                <span className="px-3 py-1 backdrop-blur-xl bg-green-500/20 border border-green-500/50 text-green-300 text-xs font-semibold rounded-full">
-                  🟢 LIVE ON DEVNET
-                </span>
+                
               </div>
             </div>
 
-            <div className="backdrop-blur-xl bg-blue-500/20 border border-blue-500/50 text-blue-200 px-4 py-3 rounded-2xl mb-4 text-sm">
-              <div className="font-semibold mb-1">
-                ⚡ Real Swap Transactions Enabled
-              </div>
-              <div className="text-blue-300">
-                Connect your wallet to swap tokens on Solana Devnet using
-                sharded liquidity pools.
-              </div>
-            </div>
+            
 
             {error && (
               <div className="backdrop-blur-xl bg-red-500/20 border border-red-500/50 text-red-300 px-4 py-3 rounded-2xl mb-4">
