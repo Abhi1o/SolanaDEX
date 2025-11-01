@@ -8,6 +8,7 @@ import { TokenBalances } from "./TokenBalances";
 import { SwapSuccessModal } from "./SwapSuccessModal";
 import { SwapErrorModal } from "./SwapErrorModal";
 import { SlippageSettings } from "./SlippageSettings";
+import { QuoteAgeProgress } from "./QuoteAgeProgress";
 
 /**
  * Example component showing how to use the Sharded DEX
@@ -315,16 +316,83 @@ export function ShardedSwapInterface() {
               <>
                 <div className="backdrop-blur-xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 rounded-2xl p-4 mb-4 space-y-2">
                   {/* Quote Freshness Indicator */}
-                  <div className="flex justify-between text-xs mb-2 pb-2 border-b border-white/10">
-                    <span className="text-gray-400 flex items-center gap-1">
-                      <span className={`inline-block w-2 h-2 rounded-full ${quoteAge < 1000 ? 'bg-green-400 animate-pulse' : quoteAge < 2000 ? 'bg-yellow-400' : 'bg-orange-400'}`}></span>
-                      Quote Age:
-                    </span>
-                    <span className="font-medium text-gray-300">
-                      {(quoteAge / 1000).toFixed(1)}s
-                      {quoteAge < 1000 && <span className="text-green-400 ml-1">• Fresh</span>}
-                    </span>
+                  <div className="mb-3 pb-3 border-b border-white/10">
+                    <QuoteAgeProgress quoteAge={quoteAge} maxAge={10000} />
                   </div>
+
+                  {/* Routing Method Indicator */}
+                  <div className="flex justify-between items-center text-sm mb-2 pb-2 border-b border-white/10">
+                    <span className="text-gray-400">Routing Method:</span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`font-medium px-3 py-1 rounded-full text-xs flex items-center gap-1 ${
+                          quote.routingMethod === "backend"
+                            ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                            : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                        }`}
+                      >
+                        {quote.routingMethod === "backend" ? (
+                          <>
+                            <span>✓</span>
+                            <span>Backend Routing</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>⚠</span>
+                            <span>Local Routing</span>
+                          </>
+                        )}
+                      </span>
+                      {/* Info Icon with Tooltip */}
+                      <div className="relative group">
+                        <svg
+                          className="w-4 h-4 text-gray-400 cursor-help"
+                          fill="none"
+                          strokeWidth="2"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-label={
+                            quote.routingMethod === "backend"
+                              ? "Backend routing information"
+                              : "Local routing information"
+                          }
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        {/* Tooltip */}
+                        <div
+                          className="absolute right-0 bottom-full mb-2 w-64 p-3 backdrop-blur-xl bg-gray-900/95 border border-white/20 rounded-xl text-xs text-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl"
+                          role="tooltip"
+                        >
+                          {quote.routingMethod === "backend" ? (
+                            <p>
+                              Optimal shard selected by backend API based on
+                              real-time analysis
+                            </p>
+                          ) : (
+                            <p>
+                              Shard selected by local calculation (backend
+                              unavailable)
+                            </p>
+                          )}
+                          {/* Tooltip arrow */}
+                          <div className="absolute right-4 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900/95" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Backend Reason Display */}
+                  {quote.routingMethod === "backend" && quote.backendReason && (
+                    <div className="text-xs text-gray-400 italic mb-2 pb-2 border-b border-white/10">
+                      {quote.backendReason}
+                    </div>
+                  )}
+
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">Price Impact:</span>
                     <span

@@ -34,10 +34,18 @@ export function useShardedDex() {
     setError(null);
 
     try {
+      // Create wallet adapter object if wallet is connected
+      const walletAdapter = publicKey && signTransaction ? {
+        publicKey,
+        signTransaction,
+        signAllTransactions,
+      } : undefined;
+
       const quote = await shardedDex.getQuote(
         inputTokenSymbol,
         outputTokenSymbol,
-        inputAmount
+        inputAmount,
+        walletAdapter
       );
       return quote;
     } catch (err) {
@@ -47,7 +55,7 @@ export function useShardedDex() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [publicKey, signTransaction, signAllTransactions]);
 
   /**
    * Execute a swap

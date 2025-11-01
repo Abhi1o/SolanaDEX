@@ -75,6 +75,7 @@ export interface Token {
   mint: string;
   address: string; // Same as mint for compatibility
   symbol: string;
+  displaySymbol?: string; // Optional display symbol (e.g., "SOL" instead of "WSOL")
   name: string;
   decimals: number;
   logoURI?: string;

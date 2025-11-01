@@ -20,6 +20,10 @@ This document explains what the app uses for wallet connection, how pools/liquid
 - **Program ID** (custom AMM): `SwapsVeCiPHMUAtzQWZw7RjsKjgCjhwU55QGu4U1Szw`
 - **Tokens**: Predefined token list (USDC, SOL, USDT, ETH) with mints and decimals
 - **Pools**: Predefined set of pools; pool metadata informs quoting and selection
+- **SAMM Router API**: Backend service for dynamic shard routing (`http://saigreen.cloud:3000`)
+  - Provides intelligent shard selection based on real-time pool states
+  - Configurable via `NEXT_PUBLIC_SAMM_ROUTER_API_URL` environment variable
+  - Falls back to local routing if unavailable
 
 ### Wallet Connection
 - Providers configured in `src/App.tsx`:
@@ -52,6 +56,11 @@ This document explains what the app uses for wallet connection, how pools/liquid
 - `LiquidityService` (`src/services/liquidityService.ts`):
   - Computes add/remove liquidity amounts and LP shares
   - Builds add/remove liquidity `TransactionInstruction`s and submits transactions
+- `SammRouterService` (`src/services/sammRouterService.ts`):
+  - Communicates with the SAMM Router backend API for dynamic shard selection
+  - Provides intelligent routing based on real-time pool analysis
+  - Includes health check and timeout handling (5-second timeout)
+  - Falls back to local routing on API failure
 
 ### Hooks (UI Logic and Orchestration)
 - `useSwap` (`src/hooks/useSwap.ts`):
@@ -86,7 +95,10 @@ This document explains what the app uses for wallet connection, how pools/liquid
 ### What It Uses for Swap/Pools/Liquidity
 - **Not using a third‑party DEX SDK** (e.g., Orca/Raydium) in this repo
 - Uses a **custom AMM program** (see `programId`) with client‑side services (`SwapService`, `LiquidityService`) that build program instructions directly
-- Pool selection and quoting are **local** (deterministic math + pool data)
+- Pool selection and quoting use **hybrid routing**:
+  - **Primary**: Backend API routing via SAMM Router (analyzes real-time pool states across all shards)
+  - **Fallback**: Local deterministic math + pool data (used when backend is unavailable)
+- The system automatically falls back to local routing if the backend API is unreachable or returns errors
 
 ### “Pattuku” Clarification
 There is no integration named “Pattuku” in this codebase. If you meant a specific protocol or SDK, it’s not present. The app speaks to the configured AMM `programId` on Solana Devnet.
@@ -142,10 +154,32 @@ flowchart TD
 - Wallet: `src/components/wallet/WalletButton.tsx`, `src/components/wallet/WalletBalance.tsx`, `src/services/walletService.ts`
 - Transactions: `src/contexts/TransactionContext.tsx`, `src/services/transactionService.ts`
 
+### Environment Variables
+The application uses the following environment variables (configured in `.env.local` and `.env.example`):
+
+#### Solana Network Configuration
+- `NEXT_PUBLIC_SOLANA_RPC_URL`: Primary RPC endpoint (default: `https://api.devnet.solana.com`)
+- `NEXT_PUBLIC_SOLANA_NETWORK`: Network identifier (default: `devnet`)
+- `NEXT_PUBLIC_SOLANA_RPC_MAINNET`: Mainnet RPC endpoint for fallback
+- `NEXT_PUBLIC_SOLANA_RPC_DEVNET`: Devnet RPC endpoint for fallback
+- `NEXT_PUBLIC_SOLANA_RPC_TESTNET`: Testnet RPC endpoint for fallback
+
+#### DEX Configuration
+- `NEXT_PUBLIC_DEX_PROGRAM_ID`: Custom AMM program ID on Solana
+- `NEXT_PUBLIC_DEX_PAYER`: Payer account for DEX operations
+
+#### API Endpoints
+- `NEXT_PUBLIC_JUPITER_API_URL`: Jupiter aggregator API for swap quotes (default: `https://quote-api.jup.ag/v6`)
+- `NEXT_PUBLIC_SAMM_ROUTER_API_URL`: SAMM Router backend API for dynamic shard routing (default: `http://saigreen.cloud:3000`)
+  - Used for intelligent shard selection based on real-time pool analysis
+  - System automatically falls back to local routing if unavailable
+  - Timeout: 5 seconds per request
+
 ### Operational Notes
 - Default endpoint and program target Devnet; to change, update `src/config/poolConfig.ts`
 - To add another wallet (e.g., Backpack), instantiate its adapter in `src/App.tsx` and optionally update `WalletButton` filter
 - Pool definitions drive quoting and selection; ensure on-chain pool metadata matches config
+- SAMM Router API can be disabled by removing or commenting out `NEXT_PUBLIC_SAMM_ROUTER_API_URL`; the system will use local routing exclusively
 
 ### Limitations and Assumptions
 - Assumes constant product AMM mechanics

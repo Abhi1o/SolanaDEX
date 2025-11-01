@@ -6,27 +6,35 @@
   "tokens": [
     {
       "symbol": "USDC",
+      "displaySymbol": "USDC",
       "name": "USD Coin",
       "mint": "BJYyjsX1xPbjL661mozEnU2vPf5gznbZAdGRXQh9Gufa",
-      "decimals": 6
+      "decimals": 6,
+      "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png"
     },
     {
       "symbol": "SOL",
+      "displaySymbol": "SOL",
       "name": "Wrapped SOL",
       "mint": "7YGTPNq1Xw1AWt4BfDqd82DAvmyNLEC1RdHzJX9PDB5r",
-      "decimals": 9
+      "decimals": 9,
+      "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png"
     },
     {
       "symbol": "USDT",
+      "displaySymbol": "USDT",
       "name": "Tether USD",
       "mint": "F7CVt32PGjVCJo7N4PS4qUzXVMBQBj3iV4qCVFdHgseu",
-      "decimals": 6
+      "decimals": 6,
+      "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg"
     },
     {
       "symbol": "ETH",
+      "displaySymbol": "ETH",
       "name": "Wrapped Ethereum",
       "mint": "7K7yLbVHtvcP6zUk6KCCyedDLFuLdNu1eawvsL13LPd",
-      "decimals": 8
+      "decimals": 8,
+      "logoURI": "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/2FPyTwcZLUg1MDrwsyoP4D6s1tM7hAkHYRjkNb5w6Pxk/logo.png"
     }
   ],
   "pools": [

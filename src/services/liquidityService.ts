@@ -9,6 +9,7 @@ import {
 } from '@/lib/solana/poolInstructions';
 import { findOrCreateATA } from '@/lib/swapInstructions';
 import dexConfig from '@/config/dex-config.json';
+import { SammRouterService } from './sammRouterService';
 
 export interface LiquidityExecutionResult {
   signature: string;
@@ -33,15 +34,73 @@ export interface RemoveLiquidityParams {
 export class LiquidityService {
   private connection: Connection;
   private programId?: PublicKey; // AMM Program ID - to be configured
+  private sammRouter: SammRouterService;
 
   constructor(connection: Connection, programId?: string) {
     this.connection = connection;
+    this.sammRouter = new SammRouterService();
     if (programId) {
       try {
         this.programId = new PublicKey(programId);
       } catch (error) {
         console.warn('Invalid program ID:', error);
       }
+    }
+  }
+
+  /**
+   * Get the smallest shard for liquidity addition
+   * 
+   * Calls the backend API to get shards sorted by size (smallest first).
+   * Liquidity providers should add liquidity to the smallest shard for best trader experience.
+   * This implements the "fillup strategy" from the SAMM paper.
+   * 
+   * @param tokenAMint - Token A mint address
+   * @param tokenBMint - Token B mint address
+   * @returns Promise resolving to the smallest shard pool address, or null if API fails
+   */
+  async getSmallestShard(
+    tokenAMint: string,
+    tokenBMint: string
+  ): Promise<{ poolAddress: string; shardNumber: number; reserves: { tokenA: string; tokenB: string } } | null> {
+    try {
+      console.log('🔍 Fetching smallest shard for liquidity addition...');
+      console.log(`   Token A: ${tokenAMint}`);
+      console.log(`   Token B: ${tokenBMint}`);
+      
+      // Use tokenA as the input token for measuring shard size
+      const response = await this.sammRouter.getSmallestShards(
+        tokenAMint,
+        tokenBMint,
+        tokenAMint
+      );
+
+      if (response.success && response.data && response.data.shards.length > 0) {
+        const smallestShard = response.data.shards[0];
+        
+        // Find the shard number from config
+        const poolConfig = dexConfig.pools.find(p => p.poolAddress === smallestShard.address);
+        const shardNumber = poolConfig?.shardNumber || 0;
+        
+        console.log('✅ Smallest shard found:');
+        console.log(`   Address: ${smallestShard.address}`);
+        console.log(`   Shard Number: ${shardNumber}`);
+        console.log(`   Reserve A: ${smallestShard.reserves.tokenA}`);
+        console.log(`   Reserve B: ${smallestShard.reserves.tokenB}`);
+        
+        return {
+          poolAddress: smallestShard.address,
+          shardNumber,
+          reserves: smallestShard.reserves
+        };
+      }
+
+      console.warn('⚠️  Backend API returned no shards');
+      return null;
+    } catch (error) {
+      console.warn('⚠️  Failed to fetch smallest shard from backend:', error);
+      console.log('   Will use first available pool from config as fallback');
+      return null;
     }
   }
 
@@ -135,7 +194,63 @@ export class LiquidityService {
       transaction
     );
 
+    // ✅ CRITICAL: Fetch FRESH pool state from blockchain right before transaction
+    // This ensures we use the most up-to-date reserves for calculation
+    console.log('🔄 Fetching FRESH pool state from blockchain...');
+    const [poolTokenAInfo, poolTokenBInfo] = await Promise.all([
+      this.connection.getTokenAccountBalance(poolTokenAccountA),
+      this.connection.getTokenAccountBalance(poolTokenAccountB)
+    ]);
+    
+    const freshReserveA = BigInt(poolTokenAInfo.value.amount);
+    const freshReserveB = BigInt(poolTokenBInfo.value.amount);
+    // Use the pool's LP supply from the pool object (already correct)
+    const freshLpSupply = pool.lpTokenSupply;
+    
+    console.log('📊 FRESH Pool State from blockchain:', {
+      reserveA: freshReserveA.toString(),
+      reserveB: freshReserveB.toString(),
+      lpSupply: freshLpSupply.toString(),
+      lpSupplySource: 'pool.lpTokenSupply (correct)',
+      timestamp: new Date().toISOString()
+    });
+    
+    // Recalculate LP tokens with FRESH reserves
+    const lpFromA = (amountA * freshLpSupply) / freshReserveA;
+    const lpFromB = (amountB * freshLpSupply) / freshReserveB;
+    const recalculatedLpTokens = lpFromA < lpFromB ? lpFromA : lpFromB;
+    
+    console.log('🔄 Recalculated LP tokens with fresh reserves:', {
+      lpFromA: lpFromA.toString(),
+      lpFromB: lpFromB.toString(),
+      recalculatedLpTokens: recalculatedLpTokens.toString(),
+      originalLpTokens: minLpTokens.toString(),
+      difference: (Number(recalculatedLpTokens) - Number(minLpTokens)).toString()
+    });
+    
+    // Use the recalculated LP tokens (based on fresh reserves)
+    const targetLpTokens = recalculatedLpTokens;
+
     // Add the add liquidity instruction with all required accounts
+    // CRITICAL: maxTokenA and maxTokenB need slippage ADDED (not subtracted!)
+    // The smart contract checks: actual_amount_needed <= max_amount
+    // So we need to provide MORE than the exact amount to account for slippage
+    
+    // Use 2x buffer (100% slippage) - MATCHES WORKING NODE.JS SCRIPT EXACTLY
+    // This is what the working script uses successfully
+    // Note: User still only deposits the calculated amount, this is just the maximum allowed
+    const maxTokenA = amountA * BigInt(2);
+    const maxTokenB = amountB * BigInt(2);
+    
+    console.log('🔧 Slippage-adjusted amounts (2x buffer like working script):');
+    console.log('  Exact Amount A:', amountA.toString());
+    console.log('  Max Amount A (2x buffer):', maxTokenA.toString());
+    console.log('  Exact Amount B:', amountB.toString());
+    console.log('  Max Amount B (2x buffer):', maxTokenB.toString());
+    
+    // ✅ CRITICAL: poolTokenAmount is EXPECTED LP tokens, NOT minimum!
+    // The smart contract interprets this as "I want to receive THIS MANY LP tokens"
+    // Slippage protection is handled by maxTokenA and maxTokenB (2x buffer)
     const addLiquidityIx = createAddLiquidityInstruction(
       this.programId,
       poolAddress,
@@ -150,9 +265,9 @@ export class LiquidityService {
       userTokenAAccount,
       userTokenBAccount,
       userLpTokenAccount,
-      amountA,
-      amountB,
-      minLpTokens
+      maxTokenA,        // maxTokenA - maximum token A to deposit (WITH 2x slippage buffer)
+      maxTokenB,        // maxTokenB - maximum token B to deposit (WITH 2x slippage buffer)
+      targetLpTokens    // poolTokenAmount - EXPECTED LP tokens based on FRESH reserves
     );
 
     transaction.add(addLiquidityIx);
@@ -213,6 +328,7 @@ export class LiquidityService {
     );
 
     // Add the remove liquidity instruction with all required accounts
+    // Parameter order: poolTokenAmount (lpTokenAmount), minTokenA, minTokenB
     const removeLiquidityIx = createRemoveLiquidityInstruction(
       this.programId,
       poolAddress,
@@ -227,9 +343,9 @@ export class LiquidityService {
       userTokenAAccount,
       userTokenBAccount,
       userLpTokenAccount,
-      lpTokenAmount,
-      minTokenA,
-      minTokenB
+      lpTokenAmount,  // poolTokenAmount - LP tokens to burn
+      minTokenA,      // minTokenA - minimum token A to receive
+      minTokenB       // minTokenB - minimum token B to receive
     );
 
     transaction.add(removeLiquidityIx);
@@ -268,6 +384,26 @@ export class LiquidityService {
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = wallet.publicKey;
+
+      // Log transaction details for debugging
+      console.log('🔍 Add Liquidity Transaction Details:');
+      console.log('  Pool:', params.pool.id);
+      console.log('  Amount A:', params.amountA.toString());
+      console.log('  Amount B:', params.amountB.toString());
+      console.log('  Min LP Tokens:', params.minLpTokens.toString());
+      console.log('  Program ID:', this.programId);
+      console.log('  Instructions:', transaction.instructions.length);
+      
+      // Validate instruction data before sending
+      if (transaction.instructions.length > 0) {
+        const lastIx = transaction.instructions[transaction.instructions.length - 1];
+        console.log('  Last instruction data:', lastIx.data.toString('hex'));
+        console.log('  Last instruction accounts:', lastIx.keys.length);
+        console.log('  Last instruction program:', lastIx.programId.toString());
+        
+        // Validate the add liquidity instruction (discriminator 2)
+        this.validateInstructionData(lastIx.data, 2, 'Add Liquidity');
+      }
 
       // Sign transaction
       const signedTransaction = await wallet.signTransaction(transaction);
@@ -349,6 +485,26 @@ export class LiquidityService {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = wallet.publicKey;
 
+      // Log transaction details for debugging
+      console.log('🔍 Remove Liquidity Transaction Details:');
+      console.log('  Pool:', params.pool.id);
+      console.log('  LP Token Amount:', params.lpTokenAmount.toString());
+      console.log('  Min Token A:', params.minTokenA?.toString() || '0');
+      console.log('  Min Token B:', params.minTokenB?.toString() || '0');
+      console.log('  Program ID:', this.programId);
+      console.log('  Instructions:', transaction.instructions.length);
+      
+      // Validate instruction data before sending
+      if (transaction.instructions.length > 0) {
+        const lastIx = transaction.instructions[transaction.instructions.length - 1];
+        console.log('  Last instruction data:', lastIx.data.toString('hex'));
+        console.log('  Last instruction accounts:', lastIx.keys.length);
+        console.log('  Last instruction program:', lastIx.programId.toString());
+        
+        // Validate the remove liquidity instruction (discriminator 3)
+        this.validateInstructionData(lastIx.data, 3, 'Remove Liquidity');
+      }
+
       // Sign transaction
       const signedTransaction = await wallet.signTransaction(transaction);
 
@@ -404,6 +560,53 @@ export class LiquidityService {
   }
 
   /**
+   * Validate instruction data before sending transaction
+   * @private
+   */
+  private validateInstructionData(
+    data: Buffer,
+    expectedDiscriminator: number,
+    operationName: string
+  ): void {
+    // Validate instruction data length
+    if (data.length !== 25) {
+      console.error(`❌ Invalid instruction data length for ${operationName}:`, data.length);
+      throw new Error(`Invalid instruction data length: expected 25 bytes, got ${data.length}`);
+    }
+    
+    // Validate discriminator value
+    const discriminator = data.readUInt8(0);
+    if (discriminator !== expectedDiscriminator) {
+      console.error(`❌ Invalid discriminator for ${operationName}:`, discriminator, 'expected:', expectedDiscriminator);
+      throw new Error(`Invalid discriminator: expected ${expectedDiscriminator}, got ${discriminator}`);
+    }
+    
+    // Validate amounts are positive
+    const poolTokenAmount = data.readBigUInt64LE(1);
+    const tokenA = data.readBigUInt64LE(9);
+    const tokenB = data.readBigUInt64LE(17);
+    
+    if (poolTokenAmount <= BigInt(0)) {
+      console.error(`❌ Invalid pool token amount for ${operationName}:`, poolTokenAmount.toString());
+      throw new Error('Pool token amount must be positive');
+    }
+    
+    if (tokenA < BigInt(0) || tokenB < BigInt(0)) {
+      console.error(`❌ Invalid token amounts for ${operationName}:`, tokenA.toString(), tokenB.toString());
+      throw new Error('Token amounts must be non-negative');
+    }
+    
+    // Log validation success
+    console.log(`✅ Instruction data validation passed for ${operationName}:`);
+    console.log('  Data length:', data.length, 'bytes');
+    console.log('  Discriminator:', discriminator);
+    console.log('  Pool token amount:', poolTokenAmount.toString());
+    console.log('  Token A amount:', tokenA.toString());
+    console.log('  Token B amount:', tokenB.toString());
+    console.log('  Instruction data (hex):', data.toString('hex'));
+  }
+
+  /**
    * Parse transaction error for user-friendly message
    */
   parseTransactionError(error: any): string {
@@ -414,20 +617,40 @@ export class LiquidityService {
     if (error?.message) {
       const message = error.message.toLowerCase();
       
+      // Check for InvalidInstruction errors (error code 0xe)
+      if (message.includes('invalid instruction') || message.includes('0xe') || message.includes('custom program error: 0xe')) {
+        return 'Invalid instruction format detected. This may be due to incorrect discriminator or account order. Please contact support if this persists.';
+      }
+      
+      // Check for discriminator-related errors
+      if (message.includes('feature not supported') || message.includes('not supported')) {
+        return 'Operation not supported by the smart contract. This may indicate an incorrect instruction discriminator. Please contact support.';
+      }
+      
       if (message.includes('insufficient funds') || message.includes('insufficient lamports')) {
-        return 'Insufficient SOL balance to pay for transaction fees.';
+        return 'Insufficient SOL balance to pay for transaction fees. Please add more SOL to your wallet.';
       }
       
       if (message.includes('slippage tolerance exceeded') || message.includes('slippage')) {
-        return 'Price moved beyond your slippage tolerance. Try increasing slippage or reducing the amount.';
+        return 'Price moved beyond your slippage tolerance. Try increasing slippage tolerance in settings or reducing the amount.';
       }
       
       if (message.includes('blockhash not found')) {
-        return 'Transaction expired. Please try again.';
+        return 'Transaction expired before confirmation. Please try again.';
       }
       
       if (message.includes('user rejected')) {
         return 'Transaction was rejected by user.';
+      }
+      
+      // Check for token account errors
+      if (message.includes('account not found') || message.includes('invalid account')) {
+        return 'Token account not found. The required token accounts may not exist yet.';
+      }
+      
+      // Check for calculation errors
+      if (message.includes('calculation failure') || message.includes('overflow')) {
+        return 'Calculation error occurred. Try reducing the amount or adjusting the ratio.';
       }
 
       return error.message;

@@ -59,13 +59,15 @@ export function loadPoolsFromConfig(): Pool[] {
     mint: token.mint,
     address: token.mint,
     symbol: token.symbol,
+    displaySymbol: (token as any).displaySymbol,
     name: token.name,
     decimals: token.decimals,
+    logoURI: (token as any).logoURI,
     isNative: token.symbol === 'SOL',
   }));
 
   // Convert all pools
-  const pools = dexConfig.pools.map(configPool => 
+  const pools = dexConfig.pools.map(configPool =>
     convertDexConfigPool(configPool, tokens)
   );
 
@@ -85,7 +87,7 @@ export function getPoolByAddress(poolAddress: string): Pool | null {
  */
 export function getPoolsByTokenPair(tokenAMint: string, tokenBMint: string): Pool[] {
   const pools = loadPoolsFromConfig();
-  return pools.filter(pool => 
+  return pools.filter(pool =>
     (pool.tokenA.mint === tokenAMint && pool.tokenB.mint === tokenBMint) ||
     (pool.tokenA.mint === tokenBMint && pool.tokenB.mint === tokenAMint)
   );
@@ -100,7 +102,7 @@ export function getTokenPairs(): Array<{ tokenA: Token; tokenB: Token; pools: Po
 
   pools.forEach(pool => {
     const pairKey = [pool.tokenA.mint, pool.tokenB.mint].sort().join('-');
-    
+
     if (!pairMap.has(pairKey)) {
       pairMap.set(pairKey, {
         tokenA: pool.tokenA,
@@ -108,7 +110,7 @@ export function getTokenPairs(): Array<{ tokenA: Token; tokenB: Token; pools: Po
         pools: [],
       });
     }
-    
+
     pairMap.get(pairKey)!.pools.push(pool);
   });
 
