@@ -16,8 +16,8 @@ export const RPC_ENDPOINTS: Record<SolanaNetwork, string[]> = {
   ],
   devnet: [
     process.env.NEXT_PUBLIC_SOLANA_RPC_DEVNET || 'https://api.devnet.solana.com',
-    'https://rpc.ankr.com/solana_devnet',
-    'https://devnet.helius-rpc.com/?api-key=public',
+    'https://solana-devnet.g.alchemy.com/v2/-f0lKfodonOgvqviPDgyB',
+    'https://devnet.helius-rpc.com/?api-key=f4d5ea3d-bea6-48f6-ba0f-323908a8f19b',
     clusterApiUrl('devnet'),
   ],
   testnet: [

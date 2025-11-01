@@ -116,7 +116,7 @@ export class SammRouterService {
     this.baseUrl = 
       baseUrl || 
       process.env.NEXT_PUBLIC_SAMM_ROUTER_API_URL || 
-      'http://saigreen.cloud:3000';
+      'https://saigreen.cloud:3000';
     
     console.log('[SammRouterService] Initialized with base URL:', this.baseUrl);
   }

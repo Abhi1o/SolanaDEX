@@ -19,7 +19,7 @@ interface UsePoolUpdatesReturn {
 }
 
 export function usePoolUpdates(options: UsePoolUpdatesOptions = {}): UsePoolUpdatesReturn {
-  const { enabled = true, updateInterval = 30000 } = options; // 30 seconds default
+  const { enabled = true, updateInterval = 60000 } = options; // Increased from 30s to 60s
   const { connection } = useConnection();
   const { pools, setPools } = usePoolStore();
   

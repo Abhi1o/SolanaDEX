@@ -25,6 +25,7 @@ import { usePoolStore } from '@/stores/poolStore';
 import { useSolanaConnection } from './useSolanaConnection';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { clearServiceWorkerCache } from '@/utils/cacheUtils';
+import { getLiquidityConfig } from '@/config/liquidityConfig';
 
 /**
  * Configuration options for pool refresh hook
@@ -74,9 +75,10 @@ interface ErrorRecoveryState {
   maxBackoffDelay: number;
 }
 
-// Constants
-const DEFAULT_REFRESH_INTERVAL = 30000; // 30 seconds (changed from 10s for silent background refresh)
-const STALE_THRESHOLD = 60 * 1000; // 1 minute in milliseconds
+// Get configuration based on environment
+const liquidityConfig = getLiquidityConfig();
+const DEFAULT_REFRESH_INTERVAL = liquidityConfig.refreshInterval;
+const STALE_THRESHOLD = liquidityConfig.staleThreshold;
 const INITIAL_BACKOFF_DELAY = 1000; // 1 second
 const MAX_BACKOFF_DELAY = 30000; // 30 seconds
 const BACKOFF_MULTIPLIER = 2;

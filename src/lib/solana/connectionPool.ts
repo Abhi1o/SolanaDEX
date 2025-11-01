@@ -16,6 +16,8 @@
  */
 
 import { Connection, ConnectionConfig } from '@solana/web3.js';
+import { HEALTH_CONFIG } from '@/config/rpcConfig';
+import { throttledRpcCall } from '@/lib/utils/requestThrottler';
 
 export interface RpcEndpointConfig {
   url: string;
@@ -52,11 +54,11 @@ export class SolanaConnectionPool {
       endpoints: config.endpoints,
       connectionConfig: config.connectionConfig || {
         commitment: 'confirmed',
-        confirmTransactionInitialTimeout: 60000,
+        confirmTransactionInitialTimeout: HEALTH_CONFIG.requestTimeout,
       },
-      healthCheckInterval: config.healthCheckInterval || 60000, // 1 minute
-      failureThreshold: config.failureThreshold || 3,
-      recoveryTime: config.recoveryTime || 30000, // 30 seconds
+      healthCheckInterval: config.healthCheckInterval || HEALTH_CONFIG.healthCheckInterval,
+      failureThreshold: config.failureThreshold || HEALTH_CONFIG.failureThreshold,
+      recoveryTime: config.recoveryTime || HEALTH_CONFIG.recoveryTime,
     };
 
     this.initializeEndpoints();
@@ -218,8 +220,11 @@ export class SolanaConnectionPool {
           throw lastError;
         }
 
-        // Small delay before retry
-        await new Promise((resolve) => setTimeout(resolve, 100 * attempts));
+        // Exponential backoff with jitter for production resilience
+        const baseDelay = 200;
+        const jitter = Math.random() * 100;
+        const delay = baseDelay * Math.pow(2, attempts - 1) + jitter;
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 
@@ -266,7 +271,7 @@ const DEVNET_ENDPOINTS: RpcEndpointConfig[] = [
   // Free public endpoints (already included)
   { url: 'https://api.devnet.solana.com' },
   { url: 'https://rpc.ankr.com/solana_devnet' },
-  { url: 'https://devnet.helius-rpc.com/?api-key=public' },
+  { url: 'https://devnet.helius-rpc.com/?api-key=f4d5ea3d-bea6-48f6-ba0f-323908a8f19b' },
 
   // Helius with your API key (RECOMMENDED - get free key at helius.dev)
   // Uncomment after adding NEXT_PUBLIC_HELIUS_API_KEY to .env.local:

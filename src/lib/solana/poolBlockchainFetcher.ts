@@ -23,6 +23,7 @@ import {
   createPoolFetchError,
   PoolFetchError 
 } from '@/utils/fetchUtils';
+import { throttledRpcCall } from '@/lib/utils/requestThrottler';
 
 /**
  * Pool account data structure from blockchain
@@ -95,10 +96,10 @@ export async function fetchPoolReserves(
   return fetchWithRetry(
     async () => {
       try {
-        // Fetch both token account balances in parallel with timeout
+        // Fetch both token account balances with throttling and timeout
         const [tokenAccountAInfo, tokenAccountBInfo] = await Promise.all([
-          fetchWithTimeout(connection.getTokenAccountBalance(tokenAAccount), 5000),
-          fetchWithTimeout(connection.getTokenAccountBalance(tokenBAccount), 5000)
+          throttledRpcCall(() => fetchWithTimeout(connection.getTokenAccountBalance(tokenAAccount), 5000)),
+          throttledRpcCall(() => fetchWithTimeout(connection.getTokenAccountBalance(tokenBAccount), 5000))
         ]);
 
         // Parse balances as bigint
@@ -147,8 +148,10 @@ export async function fetchLPTokenSupply(
   return fetchWithRetry(
     async () => {
       try {
-        // Fetch mint account info with timeout
-        const mintInfo = await fetchWithTimeout(connection.getTokenSupply(lpTokenMint), 5000);
+        // Fetch mint account info with throttling and timeout
+        const mintInfo = await throttledRpcCall(() => 
+          fetchWithTimeout(connection.getTokenSupply(lpTokenMint), 5000)
+        );
 
         // Parse supply as bigint
         const supply = BigInt(mintInfo.value.amount);
@@ -324,10 +327,10 @@ export async function enrichPoolWithBlockchainData(
 }
 
 /**
- * Fetch blockchain data for multiple pools in parallel
+ * Fetch blockchain data for multiple pools with batching and throttling
  * 
- * Efficiently fetches blockchain data for multiple pools by making parallel
- * requests. This is more efficient than fetching pools sequentially.
+ * Efficiently fetches blockchain data for multiple pools using batched requests
+ * to prevent overwhelming RPC endpoints with simultaneous calls.
  * 
  * Failed fetches are logged but don't prevent other pools from being enriched.
  * Pools that fail to fetch will retain their original config data.
@@ -340,26 +343,63 @@ export async function enrichPoolsWithBlockchainData(
   connection: Connection,
   pools: Pool[]
 ): Promise<Pool[]> {
-  console.log(`\n🔄 Enriching ${pools.length} pools with blockchain data`);
+  console.log(`\n🔄 Enriching ${pools.length} pools with blockchain data (batched)`);
 
   const startTime = Date.now();
+  const BATCH_SIZE = 5; // Process 5 pools at a time to reduce RPC load
+  const BATCH_DELAY = 200; // 200ms delay between batches
 
   try {
-    // Enrich all pools in parallel
-    const enrichedPools = await Promise.all(
-      pools.map(pool => enrichPoolWithBlockchainData(connection, pool))
-    );
+    const enrichedPools: Pool[] = [];
+    
+    // Process pools in batches to avoid overwhelming RPC
+    for (let i = 0; i < pools.length; i += BATCH_SIZE) {
+      const batch = pools.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(pools.length / BATCH_SIZE);
+      
+      console.log(`🔄 Processing batch ${batchNumber}/${totalBatches} (${batch.length} pools)`);
+      
+      // Process current batch in parallel
+      const batchResults = await Promise.allSettled(
+        batch.map(pool => enrichPoolWithBlockchainData(connection, pool))
+      );
+      
+      // Extract successful results and handle failures
+      batchResults.forEach((result, index) => {
+        const pool = batch[index];
+        if (result.status === 'fulfilled') {
+          enrichedPools.push(result.value);
+        } else {
+          console.warn(`⚠️ Failed to enrich pool ${pool.tokenA.symbol}/${pool.tokenB.symbol}: ${result.reason}`);
+          // Keep original pool data on failure
+          enrichedPools.push({
+            ...pool,
+            dataSource: 'config' as const,
+            blockchainFetchError: result.reason instanceof Error ? result.reason.message : String(result.reason),
+            isFresh: false
+          });
+        }
+      });
+      
+      // Add delay between batches (except for the last batch)
+      if (i + BATCH_SIZE < pools.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+      }
+    }
 
     const duration = Date.now() - startTime;
     const successCount = enrichedPools.filter(p => p.dataSource === 'blockchain').length;
     const failureCount = pools.length - successCount;
 
-    console.log(`\n✅ Pool enrichment complete`);
+    console.log(`\n✅ Pool enrichment complete (batched)`);
     console.log(`   Total pools: ${pools.length}`);
     console.log(`   Successful: ${successCount}`);
     console.log(`   Failed: ${failureCount}`);
     console.log(`   Duration: ${duration}ms`);
     console.log(`   Avg per pool: ${(duration / pools.length).toFixed(2)}ms`);
+    console.log(`   Batches: ${Math.ceil(pools.length / BATCH_SIZE)}`);
+    console.log(`   Batch size: ${BATCH_SIZE}`);
 
     return enrichedPools;
   } catch (error) {
@@ -368,6 +408,11 @@ export async function enrichPoolsWithBlockchainData(
     console.error(`   Error: ${errorMessage}`);
     
     // Return original pools on catastrophic failure
-    return pools;
+    return pools.map(pool => ({
+      ...pool,
+      dataSource: 'config' as const,
+      blockchainFetchError: errorMessage,
+      isFresh: false
+    }));
   }
 }

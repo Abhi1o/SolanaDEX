@@ -10,14 +10,10 @@ import {
   BeakerIcon,
   MagnifyingGlassIcon,
   FunnelIcon,
-  ArrowPathIcon,
-  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import dexConfig from '@/config/dex-config.json';
 import { TokenPairIcon } from '@/components/tokens/TokenIcon';
-import { usePoolStore } from '@/stores/poolStore';
-import { usePoolRefresh } from '@/hooks/usePoolRefresh';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+
 
 interface PoolData {
   poolAddress: string;
@@ -81,67 +77,13 @@ export default function PoolsPage() {
   const [selectedPair, setSelectedPair] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
 
-  // Get pool data from store
-  const poolStore = usePoolStore();
-  
-  // Setup automatic pool refresh
-  const { 
-    isInitialLoad,
-    isBackgroundRefresh,
-    manualRefresh,
-    clearAndRefresh,
-    error: refreshError,
-    lastRefreshTime,
-    consecutiveFailures
-  } = usePoolRefresh({
-    enabled: true,
-    refreshInterval: 30000, // 30 seconds as per requirements
-    onError: (error) => {
-      console.error('Pool refresh error:', error);
-    }
-  });
+  // Note: We don't fetch blockchain data on this page
+  // Pool data is loaded from config only for display purposes
+  // Blockchain data is fetched on-demand when user adds liquidity
 
-  // Keyboard shortcut for hard refresh (Cmd/Ctrl + Shift + R)
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows/Linux)
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key === 'R') {
-        event.preventDefault();
-        console.log('⌨️  Hard refresh triggered via keyboard shortcut');
-        clearAndRefresh();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [clearAndRefresh]);
-
-  // Use blockchain data from store if available, otherwise fall back to config
+  // Load pool metadata from config (no blockchain fetching)
+  // Blockchain data will be fetched on-demand when user adds liquidity
   const poolsData = useMemo(() => {
-    if (poolStore.pools.length > 0) {
-      // Map store pools to the format expected by this page
-      return poolStore.pools.map(pool => {
-        // Convert base units to human-readable amounts using token decimals
-        const liquidityA = (Number(pool.reserveA) / Math.pow(10, pool.tokenA.decimals)).toString();
-        const liquidityB = (Number(pool.reserveB) / Math.pow(10, pool.tokenB.decimals)).toString();
-
-        return {
-          poolAddress: pool.id,
-          tokenA: pool.tokenA.mint,
-          tokenB: pool.tokenB.mint,
-          tokenASymbol: pool.tokenA.symbol,
-          tokenBSymbol: pool.tokenB.symbol,
-          liquidityA, // Now in human-readable format
-          liquidityB, // Now in human-readable format
-          shardNumber: 0, // Default shard number
-          poolTokenMint: pool.lpTokenMint.toBase58(),
-          dataSource: pool.dataSource || 'config',
-          tokenADecimals: pool.tokenA.decimals,
-          tokenBDecimals: pool.tokenB.decimals
-        };
-      });
-    }
-    // Fallback to config data - add dataSource field and find token decimals
     return dexConfig.pools.map(pool => {
       const tokenA = dexConfig.tokens.find(t => t.mint === pool.tokenA);
       const tokenB = dexConfig.tokens.find(t => t.mint === pool.tokenB);
@@ -153,7 +95,7 @@ export default function PoolsPage() {
         tokenBDecimals: tokenB?.decimals || 9
       };
     });
-  }, [poolStore.pools]);
+  }, []);
 
   // Calculate total statistics
   const stats = useMemo(() => {
@@ -241,92 +183,12 @@ export default function PoolsPage() {
               Provide liquidity and earn rewards from trading fees
             </motion.p>
             
-            {/* Refresh Controls */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2, ease: [0.25, 0.4, 0.25, 1] }}
-              className="flex flex-col items-center gap-3 mt-6"
-            >
-              {/* Refresh Buttons */}
-              <div className="flex items-center gap-2">
-                {/* Manual Refresh Button */}
-                <button
-                  onClick={manualRefresh}
-                  disabled={isInitialLoad || isBackgroundRefresh}
-                  className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Refresh pool data"
-                >
-                  <ArrowPathIcon className={`w-4 h-4 ${isInitialLoad || isBackgroundRefresh ? 'animate-spin' : ''}`} />
-                  <span className="text-sm">
-                    {isInitialLoad || isBackgroundRefresh ? 'Refreshing...' : 'Refresh'}
-                  </span>
-                </button>
 
-                {/* Hard Refresh Button */}
-                <button
-                  onClick={clearAndRefresh}
-                  disabled={isInitialLoad || isBackgroundRefresh}
-                  className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-purple-500/10 border border-purple-500/30 rounded-xl hover:bg-purple-500/20 hover:border-purple-500/50 text-purple-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Clear cache and refresh (Cmd/Ctrl + Shift + R)"
-                >
-                  <ArrowPathIcon className={`w-4 h-4 ${isInitialLoad || isBackgroundRefresh ? 'animate-spin' : ''}`} />
-                  <span className="text-sm">Hard Refresh</span>
-                </button>
-              </div>
-
-              {/* Last Updated Indicator - Hide during initial load */}
-              {!isInitialLoad && lastRefreshTime > 0 && (
-                <div className="text-xs text-gray-400">
-                  Last updated: {formatRelativeTime(lastRefreshTime)}
-                  <span className="text-gray-500 ml-2">• Press Cmd/Ctrl + Shift + R for hard refresh</span>
-                </div>
-              )}
-            </motion.div>
           </div>
         </MotionFadeIn>
 
-        {/* Loading Indicator for Initial Fetch - Only show when initial load and no pools */}
-        {isInitialLoad && poolStore.pools.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 mb-12">
-            <LoadingSpinner size="lg" />
-            <p className="text-gray-400 mt-4">Loading pools...</p>
-          </div>
-        )}
-
-        {/* Error Banner - Show only when consecutiveFailures >= 3 */}
-        {consecutiveFailures >= 3 && refreshError && (
-          <MotionFadeIn delay={0.1}>
-            <div className="mb-8 backdrop-blur-xl bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1">
-                  <ExclamationTriangleIcon className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="text-sm font-semibold text-red-300 mb-1">
-                      Connection Error
-                    </h3>
-                    <p className="text-sm text-gray-300">
-                      Unable to fetch live pool data after {consecutiveFailures} attempts. 
-                      {poolStore.pools.length > 0 ? ' Displaying cached data.' : ' Please try again.'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={manualRefresh}
-                  disabled={isInitialLoad || isBackgroundRefresh}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 rounded-lg text-red-300 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                >
-                  <ArrowPathIcon className={`w-4 h-4 ${isInitialLoad || isBackgroundRefresh ? 'animate-spin' : ''}`} />
-                  Retry
-                </button>
-              </div>
-            </div>
-          </MotionFadeIn>
-        )}
-
-        {/* Statistics - Hide only during initial load with no data */}
-        {!(isInitialLoad && poolStore.pools.length === 0) && (
-          <MotionStagger staggerDelay={0.1}>
+        {/* Statistics */}
+        <MotionStagger staggerDelay={0.1}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             <AnimatedStat
               value={`$${(stats.totalLiquidity / 1000000).toFixed(2)}M`}
@@ -351,7 +213,6 @@ export default function PoolsPage() {
             />
           </div>
         </MotionStagger>
-        )}
 
         {/* Search and Filters */}
         <MotionReveal delay={0.5} direction="up">

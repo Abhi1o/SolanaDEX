@@ -10,7 +10,7 @@ interface UseTransactionTrackingOptions {
 }
 
 export function useTransactionTracking(options: UseTransactionTrackingOptions = {}) {
-  const { autoRefresh = true, refreshInterval = 5000 } = options;
+  const { autoRefresh = true, refreshInterval = 15000 } = options; // Increased from 5s to 15s
   const { connection } = useSolanaConnection();
   const { transactions, updateTransaction } = useTransactionStore();
   const intervalRef = useRef<NodeJS.Timeout | null>(null);

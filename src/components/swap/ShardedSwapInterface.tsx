@@ -43,7 +43,7 @@ export function ShardedSwapInterface() {
   const [errorMessage, setErrorMessage] = useState("");
   const [showSlippageSettings, setShowSlippageSettings] = useState(false);
   const [slippageTolerance, setSlippageTolerance] = useState(5.0); // Default 5% - accounts for devnet pool changes
-  const [highImpactConfirmed, setHighImpactConfirmed] = useState(false);
+
   const [quoteAge, setQuoteAge] = useState(0);
   const [lastQuoteTime, setLastQuoteTime] = useState<number>(0);
   const [realTimePools, setRealTimePools] = useState<any[]>([]);
@@ -77,7 +77,6 @@ export function ShardedSwapInterface() {
     const amount = parseFloat(inputAmount);
     if (!amount || amount <= 0) {
       setQuote(null);
-      setHighImpactConfirmed(false);
       setQuoteAge(0);
       setLastQuoteTime(0);
       return;
@@ -90,8 +89,6 @@ export function ShardedSwapInterface() {
       setQuoteLoading(false);
       setLastQuoteTime(Date.now());
       setQuoteAge(0);
-      // Reset confirmation when quote changes
-      setHighImpactConfirmed(false);
     }, 500);
 
     return () => clearTimeout(debounce);
@@ -111,8 +108,6 @@ export function ShardedSwapInterface() {
       setQuote(q);
       setLastQuoteTime(Date.now());
       setQuoteAge(0);
-      // Reset confirmation when quote changes
-      setHighImpactConfirmed(false);
     }, 10000); // Refresh every 10 seconds (less aggressive)
 
     return () => clearInterval(refreshInterval);
@@ -347,78 +342,7 @@ export function ShardedSwapInterface() {
                     <QuoteAgeProgress quoteAge={quoteAge} maxAge={10000} />
                   </div>
 
-                  {/* Routing Method Indicator */}
-                  <div className="flex justify-between items-center text-sm mb-2 pb-2 border-b border-white/10">
-                    <span className="text-gray-400">Routing Method:</span>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`font-medium px-3 py-1 rounded-full text-xs flex items-center gap-1 ${
-                          quote.routingMethod === "backend"
-                            ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                            : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                        }`}
-                      >
-                        {quote.routingMethod === "backend" ? (
-                          <>
-                            <span>✓</span>
-                            <span>Backend Routing</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>⚠</span>
-                            <span>Local Routing</span>
-                          </>
-                        )}
-                      </span>
-                      {/* Info Icon with Tooltip */}
-                      <div className="relative group">
-                        <svg
-                          className="w-4 h-4 text-gray-400 cursor-help"
-                          fill="none"
-                          strokeWidth="2"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          aria-label={
-                            quote.routingMethod === "backend"
-                              ? "Backend routing information"
-                              : "Local routing information"
-                          }
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        {/* Tooltip */}
-                        <div
-                          className="absolute right-0 bottom-full mb-2 w-64 p-3 backdrop-blur-xl bg-gray-900/95 border border-white/20 rounded-xl text-xs text-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl"
-                          role="tooltip"
-                        >
-                          {quote.routingMethod === "backend" ? (
-                            <p>
-                              Optimal shard selected by backend API based on
-                              real-time analysis
-                            </p>
-                          ) : (
-                            <p>
-                              Shard selected by local calculation (backend
-                              unavailable)
-                            </p>
-                          )}
-                          {/* Tooltip arrow */}
-                          <div className="absolute right-4 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900/95" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Backend Reason Display */}
-                  {quote.routingMethod === "backend" && quote.backendReason && (
-                    <div className="text-xs text-gray-400 italic mb-2 pb-2 border-b border-white/10">
-                      {quote.backendReason}
-                    </div>
-                  )}
 
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">Price Impact:</span>
@@ -434,12 +358,7 @@ export function ShardedSwapInterface() {
                       {quote.priceImpact.toFixed(2)}%
                     </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">Fee (0.3%):</span>
-                    <span className="font-medium text-white">
-                      {quote.totalFee.toFixed(6)} {inputToken}
-                    </span>
-                  </div>
+
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400">Using Shard:</span>
                     <span className="font-medium text-white">
@@ -516,18 +435,7 @@ export function ShardedSwapInterface() {
                         </p>
                       </div>
                     </div>
-                    <label className="flex items-start gap-2 cursor-pointer group">
-                      <input
-                        type="checkbox"
-                        checked={highImpactConfirmed}
-                        onChange={(e) => setHighImpactConfirmed(e.target.checked)}
-                        className="mt-0.5 w-4 h-4 rounded border-red-400 bg-red-500/20 text-red-500 focus:ring-2 focus:ring-red-500/50 cursor-pointer"
-                      />
-                      <span className="text-red-200 text-xs font-medium group-hover:text-red-100 transition-colors">
-                        I understand the risks and want to proceed with this high
-                        impact trade
-                      </span>
-                    </label>
+
                   </div>
                 )}
               </>
@@ -539,8 +447,7 @@ export function ShardedSwapInterface() {
               disabled={
                 !quote ||
                 loading ||
-                quoteLoading ||
-                (quote && quote.priceImpact > 5 && !highImpactConfirmed)
+                quoteLoading
               }
               className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-purple-600 hover:to-pink-600 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-2xl transition-all shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100"
             >
@@ -567,8 +474,6 @@ export function ShardedSwapInterface() {
                   </svg>
                   Swapping...
                 </span>
-              ) : quote && quote.priceImpact > 5 && !highImpactConfirmed ? (
-                "Confirm High Impact Warning"
               ) : quote ? (
                 "Swap"
               ) : (

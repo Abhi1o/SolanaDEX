@@ -35,8 +35,8 @@ const DEFAULT_ENDPOINTS: Record<SolanaCluster, RpcEndpoint[]> = {
   ],
   [SolanaCluster.DEVNET]: [
     { url: 'https://api.devnet.solana.com', cluster: SolanaCluster.DEVNET, priority: 1 },
-    { url: 'https://rpc.ankr.com/solana_devnet', cluster: SolanaCluster.DEVNET, priority: 2 },
-    { url: 'https://devnet.helius-rpc.com/?api-key=public', cluster: SolanaCluster.DEVNET, priority: 3 },
+    { url: 'https://solana-devnet.g.alchemy.com/v2/-f0lKfodonOgvqviPDgyB', cluster: SolanaCluster.DEVNET, priority: 2 },
+    { url: 'https://devnet.helius-rpc.com/?api-key=f4d5ea3d-bea6-48f6-ba0f-323908a8f19b', cluster: SolanaCluster.DEVNET, priority: 3 },
   ],
   [SolanaCluster.TESTNET]: [
     { url: 'https://api.testnet.solana.com', cluster: SolanaCluster.TESTNET, priority: 1 },

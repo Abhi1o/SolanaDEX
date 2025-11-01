@@ -11,7 +11,7 @@ interface UsePortfolioOptions {
 }
 
 export function usePortfolio(options: UsePortfolioOptions = {}) {
-  const { autoRefresh = true, refreshInterval = 30000 } = options;
+  const { autoRefresh = true, refreshInterval = 45000 } = options; // Increased from 30s to 45s
   const { connection } = useSolanaConnection();
   const { address, isConnected, tokenAccounts, solBalance } = useWalletStore();
   const {

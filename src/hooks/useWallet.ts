@@ -158,8 +158,8 @@ export const useWallet = () => {
       // Update balance immediately
       updateBalance();
       
-      // Set up periodic balance updates every 30 seconds
-      intervalId = setInterval(updateBalance, 30000);
+      // Set up periodic balance updates every 45 seconds
+      intervalId = setInterval(updateBalance, 45000); // Increased from 30s to 45s
     }
 
     return () => {

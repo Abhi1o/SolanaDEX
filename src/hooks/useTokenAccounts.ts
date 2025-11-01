@@ -16,7 +16,7 @@ interface UseTokenAccountsOptions {
  * Hook to fetch and manage SPL token accounts for the connected wallet
  */
 export function useTokenAccounts(options: UseTokenAccountsOptions = {}) {
-  const { enabled = true, autoRefresh = true, refreshInterval = 30000 } = options;
+  const { enabled = true, autoRefresh = true, refreshInterval = 60000 } = options; // Increased from 30s to 60s
   const { connection } = useSolanaConnection();
   const { isConnected, publicKey } = useWallet();
   const { updateTokenAccounts } = useWalletStore();
