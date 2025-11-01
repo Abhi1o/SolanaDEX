@@ -6,9 +6,14 @@ import { PublicKey } from '@solana/web3.js';
 
 // Mock hooks
 const mockUsePools = vi.fn();
+const mockUsePoolRefresh = vi.fn();
 
 vi.mock('@/hooks/usePools', () => ({
   usePools: () => mockUsePools(),
+}));
+
+vi.mock('@/hooks/usePoolRefresh', () => ({
+  usePoolRefresh: () => mockUsePoolRefresh(),
 }));
 
 // Mock components
@@ -93,6 +98,16 @@ describe('PoolList', () => {
       pools: mockPools,
       loading: false,
       error: null,
+    });
+    
+    mockUsePoolRefresh.mockReturnValue({
+      isRefreshing: false,
+      isStale: false,
+      manualRefresh: vi.fn(),
+      error: null,
+      lastRefreshTime: Date.now(),
+      consecutiveFailures: 0,
+      currentBackoffDelay: 1000,
     });
   });
 

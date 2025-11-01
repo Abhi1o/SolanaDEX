@@ -17,3 +17,7 @@ export { ResponsiveNav } from './ResponsiveNav';
 export { SkipNav } from './SkipNav';
 export { AccessibilityProvider, useAccessibility } from './AccessibilityProvider';
 export { AccessibilityMenu } from './AccessibilityMenu';
+export { ConnectionStatus, ConnectionStatusBadge } from './ConnectionStatus';
+export { DataSourceBadge, DataSourceIndicator } from './DataSourceBadge';
+export type { DataSource } from './DataSourceBadge';
+export { ErrorRecoveryPanel, ErrorRecoveryBanner } from './ErrorRecoveryPanel';

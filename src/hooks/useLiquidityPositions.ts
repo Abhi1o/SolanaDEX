@@ -27,6 +27,7 @@ interface UseLiquidityPositionsReturn {
   loading: boolean;
   error: string | null;
   refreshPositions: () => Promise<void>;
+  refreshAfterOperation: () => Promise<void>; // Refresh after liquidity operations
 }
 
 export function useLiquidityPositions(): UseLiquidityPositionsReturn {
@@ -38,9 +39,9 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
 
   const { connection } = useConnection();
   const { publicKey, connected } = useWallet();
-  const { pools } = usePoolStore();
+  const { pools, lastFetchTime } = usePoolStore();
 
-  // Fetch LP token balance for a specific pool
+  // Fetch LP token balance for a specific pool using real blockchain data
   const fetchLpTokenBalance = useCallback(async (pool: Pool): Promise<bigint> => {
     if (!publicKey || !connection) return BigInt(0);
 
@@ -50,15 +51,25 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
         publicKey
       );
 
+      // Fetch actual balance from blockchain
       const accountInfo = await connection.getTokenAccountBalance(lpTokenAccount);
-      return accountInfo.value ? BigInt(accountInfo.value.amount) : BigInt(0);
+      const balance = accountInfo.value ? BigInt(accountInfo.value.amount) : BigInt(0);
+      
+      console.log(`📊 Fetched LP token balance for ${pool.tokenA.symbol}/${pool.tokenB.symbol}`);
+      console.log(`   Balance: ${balance.toString()} (${accountInfo.value?.uiAmountString || '0'} UI)`);
+      
+      return balance;
     } catch (error) {
       // Account doesn't exist or other error - balance is 0
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!errorMessage.toLowerCase().includes('could not find')) {
+        console.warn(`⚠️  Failed to fetch LP balance for ${pool.tokenA.symbol}/${pool.tokenB.symbol}:`, errorMessage);
+      }
       return BigInt(0);
     }
   }, [publicKey, connection]);
 
-  // Calculate position details from LP token balance
+  // Calculate position details from LP token balance using fetched pool reserves
   const calculatePositionDetails = useCallback((pool: Pool, lpTokenBalance: bigint): Omit<LiquidityPosition, 'pool' | 'lpTokenBalance' | 'lpTokenAccount'> => {
     if (lpTokenBalance === BigInt(0) || pool.lpTokenSupply === BigInt(0)) {
       return {
@@ -72,19 +83,27 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
       };
     }
 
-    // Calculate share of pool
+    // Calculate share of pool using actual LP token supply from blockchain
     const shareOfPool = Number(lpTokenBalance) / Number(pool.lpTokenSupply);
 
-    // Calculate token amounts based on pool reserves
-    const tokenAAmount = BigInt(Math.floor(Number(pool.reserveA) * shareOfPool));
-    const tokenBAmount = BigInt(Math.floor(Number(pool.reserveB) * shareOfPool));
+    // Calculate token amounts based on actual pool reserves from blockchain
+    // Use BigInt arithmetic for precision
+    const tokenAAmount = (pool.reserveA * lpTokenBalance) / pool.lpTokenSupply;
+    const tokenBAmount = (pool.reserveB * lpTokenBalance) / pool.lpTokenSupply;
+
+    console.log(`💰 Calculated position for ${pool.tokenA.symbol}/${pool.tokenB.symbol}`);
+    console.log(`   Share of pool: ${(shareOfPool * 100).toFixed(4)}%`);
+    console.log(`   Token A amount: ${tokenAAmount.toString()}`);
+    console.log(`   Token B amount: ${tokenBAmount.toString()}`);
 
     // Calculate position value (simplified - using SOL as base)
     // In real implementation, would use price feeds
     const value = tokenAAmount + tokenBAmount; // Simplified calculation
 
     // Calculate fees earned (simplified)
-    const feesEarned24h = BigInt(Math.floor(Number(pool.fees24h) * shareOfPool));
+    const feesEarned24h = pool.fees24h 
+      ? BigInt(Math.floor(Number(pool.fees24h) * shareOfPool))
+      : BigInt(0);
 
     // TODO: Calculate impermanent loss
     // This requires historical price data and initial deposit amounts
@@ -106,9 +125,11 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
       setPositions([]);
       setTotalValue(BigInt(0));
       setTotalValueUsd(0);
+      setLoading(false);
       return;
     }
 
+    console.log(`🔍 Fetching LP positions for ${pools.length} pools`);
     setLoading(true);
     setError(null);
 
@@ -147,8 +168,11 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
       // TODO: Calculate USD value using price feeds
       setTotalValueUsd(Number(totalVal) / 1e9 * 100); // Mock USD price
 
+      console.log(`✅ Fetched ${validPositions.length} LP positions`);
+      console.log(`   Total value: ${totalVal.toString()}`);
+
     } catch (err) {
-      console.error('Failed to fetch liquidity positions:', err);
+      console.error('❌ Failed to fetch liquidity positions:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch positions');
     } finally {
       setLoading(false);
@@ -160,10 +184,34 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
     await fetchPositions();
   }, [fetchPositions]);
 
-  // Fetch positions when dependencies change
+  // Refresh positions after liquidity operations (add/remove liquidity)
+  const refreshAfterOperation = useCallback(async () => {
+    console.log('🔄 Refreshing LP positions after liquidity operation');
+    setLoading(true);
+    
+    // Wait a moment for blockchain to update
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    await fetchPositions();
+  }, [fetchPositions]);
+
+  // Fetch positions when dependencies change or when pool data updates
   useEffect(() => {
     fetchPositions();
-  }, [fetchPositions]);
+  }, [fetchPositions, lastFetchTime]); // Re-fetch when pool data is refreshed
+
+  // Refresh positions when wallet connects/disconnects
+  useEffect(() => {
+    if (connected && publicKey) {
+      console.log('👛 Wallet connected, refreshing LP positions');
+      fetchPositions();
+    } else {
+      console.log('👛 Wallet disconnected, clearing LP positions');
+      setPositions([]);
+      setTotalValue(BigInt(0));
+      setTotalValueUsd(0);
+    }
+  }, [connected, publicKey]); // Trigger on wallet connection changes
 
   // Set up periodic refresh
   useEffect(() => {
@@ -181,6 +229,7 @@ export function useLiquidityPositions(): UseLiquidityPositionsReturn {
     loading,
     error,
     refreshPositions,
+    refreshAfterOperation,
   };
 }
 

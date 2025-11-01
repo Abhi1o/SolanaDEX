@@ -22,6 +22,7 @@ export function ShardedSwapInterface() {
     getQuote,
     executeSwap,
     getPoolsForPair,
+    getPoolsForPairRealTime,
     getTradingPairs,
   } = useShardedDex();
 
@@ -45,6 +46,31 @@ export function ShardedSwapInterface() {
   const [highImpactConfirmed, setHighImpactConfirmed] = useState(false);
   const [quoteAge, setQuoteAge] = useState(0);
   const [lastQuoteTime, setLastQuoteTime] = useState<number>(0);
+  const [realTimePools, setRealTimePools] = useState<any[]>([]);
+  const [poolsLoading, setPoolsLoading] = useState(false);
+
+  // Fetch real-time pool data when token pair changes
+  useEffect(() => {
+    const fetchRealTimePools = async () => {
+      setPoolsLoading(true);
+      try {
+        const pools = await getPoolsForPairRealTime(inputToken, outputToken);
+        setRealTimePools(pools);
+      } catch (error) {
+        console.error('Failed to fetch real-time pool data:', error);
+        // Fallback to static data
+        setRealTimePools(getPoolsForPair(inputToken, outputToken));
+      } finally {
+        setPoolsLoading(false);
+      }
+    };
+
+    fetchRealTimePools();
+
+    // Auto-refresh pool data every 10 seconds
+    const refreshInterval = setInterval(fetchRealTimePools, 10000);
+    return () => clearInterval(refreshInterval);
+  }, [inputToken, outputToken, getPoolsForPairRealTime, getPoolsForPair]);
 
   // Get quote when inputs change
   useEffect(() => {
@@ -138,7 +164,8 @@ export function ShardedSwapInterface() {
     setQuote(null);
   };
 
-  const pools = getPoolsForPair(inputToken, outputToken);
+  // Use real-time pools data instead of static config data
+  const pools = realTimePools.length > 0 ? realTimePools : getPoolsForPair(inputToken, outputToken);
   const pairs = getTradingPairs();
 
   return (
@@ -562,11 +589,19 @@ export function ShardedSwapInterface() {
             {/* Available Shards */}
             {pools.length > 0 && (
               <div className="mb-6">
-                <h3 className="text-lg font-bold text-white mb-4">
-                  Available Shards for {inputToken}/{outputToken}
-                </h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-white">
+                    Available Shards for {inputToken}/{outputToken}
+                  </h3>
+                  {poolsLoading && (
+                    <div className="flex items-center gap-1 text-xs text-blue-400">
+                      <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      <span>Updating...</span>
+                    </div>
+                  )}
+                </div>
                 <div className="space-y-2">
-                  {pools.map((pool) => (
+                  {pools.map((pool: any) => (
                     <div
                       key={pool.poolAddress}
                       className={`text-xs p-3 rounded-2xl backdrop-blur-xl transition-all ${
@@ -576,9 +611,22 @@ export function ShardedSwapInterface() {
                       }`}
                     >
                       <div className="flex justify-between mb-2">
-                        <span className="font-bold text-white">
-                          Shard {pool.shardNumber}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white">
+                            Shard {pool.shardNumber}
+                          </span>
+                          {pool.dataSource && (
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                pool.dataSource === 'blockchain'
+                                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                  : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                              }`}
+                            >
+                              {pool.dataSource === 'blockchain' ? '🟢 Live' : '⚠️ Cached'}
+                            </span>
+                          )}
+                        </div>
                         {quote &&
                           quote.route[0].poolAddress === pool.poolAddress && (
                             <span className="text-blue-400 font-semibold">

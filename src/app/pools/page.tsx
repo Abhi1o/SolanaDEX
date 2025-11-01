@@ -9,10 +9,16 @@ import {
   ChartBarIcon, 
   BeakerIcon,
   MagnifyingGlassIcon,
-  FunnelIcon
+  FunnelIcon,
+  ArrowPathIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import dexConfig from '@/config/dex-config.json';
 import { TokenPairIcon } from '@/components/tokens/TokenIcon';
+import { usePoolStore } from '@/stores/poolStore';
+import { usePoolRefresh } from '@/hooks/usePoolRefresh';
+import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ConnectionStatus } from '@/components/ui/ConnectionStatus';
 
 interface PoolData {
   poolAddress: string;
@@ -20,10 +26,34 @@ interface PoolData {
   tokenB: string;
   tokenASymbol: string;
   tokenBSymbol: string;
-  liquidityA: string;
-  liquidityB: string;
+  liquidityA: string; // Human-readable format (already divided by decimals)
+  liquidityB: string; // Human-readable format (already divided by decimals)
   shardNumber: number;
   poolTokenMint: string;
+  dataSource?: 'config' | 'blockchain' | 'hybrid';
+  tokenADecimals?: number;
+  tokenBDecimals?: number;
+}
+
+// Helper function to format token amounts with appropriate decimal places
+function formatTokenAmount(amount: string, symbol: string): string {
+  const num = parseFloat(amount);
+  if (isNaN(num)) return '0';
+
+  // Use different decimal places based on token type
+  if (symbol === 'USDC' || symbol === 'USDT') {
+    // Stablecoins: 2 decimal places
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } else if (symbol === 'SOL') {
+    // SOL: 4 decimal places
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  } else if (symbol === 'ETH') {
+    // ETH: 6 decimal places
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  }
+
+  // Default: 2-6 decimal places
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 }
 
 export default function PoolsPage() {
@@ -31,9 +61,68 @@ export default function PoolsPage() {
   const [selectedPair, setSelectedPair] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Get pool data from store
+  const poolStore = usePoolStore();
+  
+  // Setup automatic pool refresh
+  const { 
+    isRefreshing, 
+    isStale, 
+    manualRefresh, 
+    error: refreshError,
+    lastRefreshTime,
+    consecutiveFailures,
+    currentBackoffDelay
+  } = usePoolRefresh({
+    enabled: true,
+    refreshInterval: 30000, // 30 seconds as per requirements
+    onError: (error) => {
+      console.error('Pool refresh error:', error);
+    }
+  });
+
+  // Use blockchain data from store if available, otherwise fall back to config
+  const poolsData = useMemo(() => {
+    if (poolStore.pools.length > 0) {
+      // Map store pools to the format expected by this page
+      return poolStore.pools.map(pool => {
+        // Convert base units to human-readable amounts using token decimals
+        const liquidityA = (Number(pool.reserveA) / Math.pow(10, pool.tokenA.decimals)).toString();
+        const liquidityB = (Number(pool.reserveB) / Math.pow(10, pool.tokenB.decimals)).toString();
+
+        return {
+          poolAddress: pool.id,
+          tokenA: pool.tokenA.mint,
+          tokenB: pool.tokenB.mint,
+          tokenASymbol: pool.tokenA.symbol,
+          tokenBSymbol: pool.tokenB.symbol,
+          liquidityA, // Now in human-readable format
+          liquidityB, // Now in human-readable format
+          shardNumber: 0, // Default shard number
+          poolTokenMint: pool.lpTokenMint.toBase58(),
+          dataSource: pool.dataSource || 'config',
+          tokenADecimals: pool.tokenA.decimals,
+          tokenBDecimals: pool.tokenB.decimals
+        };
+      });
+    }
+    // Fallback to config data - add dataSource field and find token decimals
+    return dexConfig.pools.map(pool => {
+      const tokenA = dexConfig.tokens.find(t => t.mint === pool.tokenA);
+      const tokenB = dexConfig.tokens.find(t => t.mint === pool.tokenB);
+
+      return {
+        ...pool,
+        dataSource: 'config' as const,
+        tokenADecimals: tokenA?.decimals || 9,
+        tokenBDecimals: tokenB?.decimals || 9
+      };
+    });
+  }, [poolStore.pools]);
+
   // Calculate total statistics
   const stats = useMemo(() => {
-    const totalLiquidityUSD = dexConfig.pools.reduce((sum, pool) => {
+    const totalLiquidityUSD = poolsData.reduce((sum, pool) => {
       // Rough estimation: assuming 1 SOL = $100, 1 USDC = $1, 1 ETH = $2000
       const tokenAValue = pool.tokenASymbol === 'USDC' || pool.tokenASymbol === 'USDT' 
         ? parseFloat(pool.liquidityA)
@@ -45,14 +134,14 @@ export default function PoolsPage() {
 
     return {
       totalLiquidity: totalLiquidityUSD,
-      totalPools: dexConfig.pools.length,
+      totalPools: poolsData.length,
       totalVolume: totalLiquidityUSD * 0.02, // Estimate 2% daily volume
     };
-  }, []);
+  }, [poolsData]);
 
   // Filter pools
   const filteredPools = useMemo(() => {
-    let pools = dexConfig.pools;
+    let pools = poolsData;
 
     // Filter by search query
     if (searchQuery) {
@@ -71,7 +160,7 @@ export default function PoolsPage() {
     }
 
     return pools;
-  }, [searchQuery, selectedPair]);
+  }, [poolsData, searchQuery, selectedPair]);
 
   // Group pools by pair
   const poolsByPair = useMemo(() => {
@@ -116,11 +205,76 @@ export default function PoolsPage() {
             >
               Provide liquidity and earn rewards from trading fees
             </motion.p>
+            
+            {/* Connection Status and Refresh Controls */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2, ease: [0.25, 0.4, 0.25, 1] }}
+              className="flex flex-col items-center gap-4 mt-6"
+            >
+              {/* Connection Status Indicator */}
+              <ConnectionStatus
+                isConnected={!refreshError && poolStore.pools.length > 0}
+                isConnecting={isRefreshing || poolStore.loading}
+                error={refreshError?.message}
+                consecutiveFailures={consecutiveFailures}
+                onRetry={manualRefresh}
+                variant="full"
+                className="max-w-md w-full"
+              />
+
+              {/* Additional Controls */}
+              <div className="flex items-center gap-3 flex-wrap justify-center">
+                {/* Manual Refresh Button */}
+                <button
+                  onClick={manualRefresh}
+                  disabled={isRefreshing || poolStore.loading}
+                  className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowPathIcon className={`w-4 h-4 ${isRefreshing || poolStore.loading ? 'animate-spin' : ''}`} />
+                  <span className="text-sm">
+                    {isRefreshing || poolStore.loading ? 'Refreshing...' : 'Refresh Data'}
+                  </span>
+                </button>
+
+                {/* Staleness Indicator */}
+                {isStale && !isRefreshing && (
+                  <div className="flex items-center gap-2 px-3 py-2 backdrop-blur-xl bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                    <ExclamationTriangleIcon className="w-4 h-4 text-yellow-400" />
+                    <span className="text-xs text-yellow-300">Data may be outdated</span>
+                  </div>
+                )}
+
+                {/* Last Update Time */}
+                {lastRefreshTime > 0 && !isStale && !refreshError && (
+                  <div className="text-xs text-gray-400">
+                    Updated {new Date(lastRefreshTime).toLocaleTimeString()}
+                  </div>
+                )}
+
+                {/* Backoff Info (for debugging) */}
+                {consecutiveFailures > 0 && currentBackoffDelay > 0 && (
+                  <div className="text-xs text-gray-400">
+                    Next retry in {Math.round(currentBackoffDelay / 1000)}s
+                  </div>
+                )}
+              </div>
+            </motion.div>
           </div>
         </MotionFadeIn>
 
+        {/* Loading Indicator for Initial Fetch */}
+        {poolStore.loading && poolStore.pools.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 mb-12">
+            <LoadingSpinner size="lg" />
+            <p className="text-gray-400 mt-4">Loading pool data from blockchain...</p>
+          </div>
+        )}
+
         {/* Statistics */}
-        <MotionStagger staggerDelay={0.1}>
+        {(!poolStore.loading || poolStore.pools.length > 0) && (
+          <MotionStagger staggerDelay={0.1}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
             <AnimatedStat
               value={`$${(stats.totalLiquidity / 1000000).toFixed(2)}M`}
@@ -145,6 +299,7 @@ export default function PoolsPage() {
             />
           </div>
         </MotionStagger>
+        )}
 
         {/* Search and Filters */}
         <MotionReveal delay={0.5} direction="up">
@@ -201,7 +356,16 @@ export default function PoolsPage() {
 
         {/* Pools Grid */}
         <MotionReveal delay={0.6} direction="up">
-          <div className="space-y-8">
+          <div className="space-y-8 relative">
+            {/* Refreshing Overlay */}
+            {isRefreshing && poolStore.pools.length > 0 && (
+              <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-center py-2 backdrop-blur-sm bg-black/30 rounded-2xl border border-blue-500/30">
+                <div className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 rounded-xl">
+                  <ArrowPathIcon className="w-4 h-4 text-blue-300 animate-spin" />
+                  <span className="text-sm text-blue-300">Updating pool data...</span>
+                </div>
+              </div>
+            )}
             {Object.entries(poolsByPair).map(([pairKey, pools], pairIndex) => {
               const totalLiquidityA = pools.reduce((sum, p) => sum + parseFloat(p.liquidityA), 0);
               const totalLiquidityB = pools.reduce((sum, p) => sum + parseFloat(p.liquidityB), 0);
@@ -232,58 +396,100 @@ export default function PoolsPage() {
                     <div className="text-right">
                       <div className="text-sm text-gray-400">Total Liquidity</div>
                       <div className="text-lg font-bold text-white">
-                        {totalLiquidityA.toLocaleString()} {pools[0].tokenASymbol}
+                        {formatTokenAmount(totalLiquidityA.toString(), pools[0].tokenASymbol)} {pools[0].tokenASymbol}
                       </div>
                       <div className="text-sm text-gray-400">
-                        {totalLiquidityB.toLocaleString()} {pools[0].tokenBSymbol}
+                        {formatTokenAmount(totalLiquidityB.toString(), pools[0].tokenBSymbol)} {pools[0].tokenBSymbol}
                       </div>
                     </div>
                   </div>
 
                   {/* Shards Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {pools.map((pool) => (
-                      <div
-                        key={pool.poolAddress}
-                        className="backdrop-blur-xl bg-white/5 rounded-2xl p-4 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all cursor-pointer group"
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="px-3 py-1 backdrop-blur-xl bg-blue-500/20 border border-blue-500/50 text-blue-300 text-xs font-bold rounded-full">
-                            Shard #{pool.shardNumber}
-                          </span>
-                          <span className="text-xs text-gray-400 group-hover:text-white transition-colors">
-                            View →
-                          </span>
-                        </div>
-                        
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">{pool.tokenASymbol}:</span>
-                            <span className="text-white font-medium">
-                              {parseFloat(pool.liquidityA).toLocaleString()}
+                    {pools.map((pool) => {
+                      // Calculate total liquidity for this pool
+                      const poolLiquidity = parseFloat(pool.liquidityA) + parseFloat(pool.liquidityB);
+                      
+                      // Find the pool with highest liquidity in this pair
+                      const maxLiquidity = Math.max(...pools.map(p => 
+                        parseFloat(p.liquidityA) + parseFloat(p.liquidityB)
+                      ));
+                      const isHighestLiquidity = poolLiquidity === maxLiquidity && pools.length > 1;
+                      
+                      // Check if this is blockchain data
+                      const isBlockchainData = pool.dataSource === 'blockchain' || pool.dataSource === 'hybrid';
+                      
+                      return (
+                        <div
+                          key={pool.poolAddress}
+                          className={`backdrop-blur-xl rounded-2xl p-4 border transition-all cursor-pointer group relative ${
+                            isHighestLiquidity
+                              ? 'bg-gradient-to-br from-green-500/10 to-emerald-500/10 border-green-500/50 hover:border-green-400/70'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                          }`}
+                        >
+                          {/* Highest Liquidity Badge */}
+                          {isHighestLiquidity && (
+                            <div className="absolute -top-2 -right-2 px-2 py-1 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs font-bold rounded-full shadow-lg">
+                              ⭐ Best
+                            </div>
+                          )}
+                          
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-3 py-1 backdrop-blur-xl text-xs font-bold rounded-full ${
+                                isHighestLiquidity
+                                  ? 'bg-green-500/20 border border-green-500/50 text-green-300'
+                                  : 'bg-blue-500/20 border border-blue-500/50 text-blue-300'
+                              }`}>
+                                Shard #{pool.shardNumber}
+                              </span>
+                              {/* Data Source Indicator */}
+                              {isBlockchainData && (
+                                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" title="Live blockchain data" />
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-400 group-hover:text-white transition-colors">
+                              View →
                             </span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">{pool.tokenBSymbol}:</span>
-                            <span className="text-white font-medium">
-                              {parseFloat(pool.liquidityB).toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="pt-2 border-t border-white/10">
+                          
+                          <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
-                              <span className="text-gray-400">APR:</span>
-                              <span className="text-green-400 font-medium">~12.5%</span>
+                              <span className="text-gray-400">{pool.tokenASymbol}:</span>
+                              <span className={`font-medium ${isHighestLiquidity ? 'text-green-300' : 'text-white'}`}>
+                                {formatTokenAmount(pool.liquidityA, pool.tokenASymbol)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">{pool.tokenBSymbol}:</span>
+                              <span className={`font-medium ${isHighestLiquidity ? 'text-green-300' : 'text-white'}`}>
+                                {formatTokenAmount(pool.liquidityB, pool.tokenBSymbol)}
+                              </span>
+                            </div>
+                            <div className="pt-2 border-t border-white/10">
+                              <div className="flex justify-between">
+                                <span className="text-gray-400">APR:</span>
+                                <span className="text-green-400 font-medium">~12.5%</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="mt-3 pt-3 border-t border-white/10">
-                          <div className="text-xs text-gray-500 font-mono truncate" title={pool.poolAddress}>
-                            {pool.poolAddress.slice(0, 8)}...{pool.poolAddress.slice(-8)}
+                          <div className="mt-3 pt-3 border-t border-white/10">
+                            <div className="text-xs text-gray-500 font-mono truncate" title={pool.poolAddress}>
+                              {pool.poolAddress.slice(0, 8)}...{pool.poolAddress.slice(-8)}
+                            </div>
+                            {/* Data Source Label */}
+                            {isBlockchainData && (
+                              <div className="text-xs text-green-400 mt-1 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+                                Live Data
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </motion.div>
               );

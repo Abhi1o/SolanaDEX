@@ -2,6 +2,7 @@
 export * from './useWallet'
 export * from './useWalletManager'
 export * from './usePools'
+export * from './usePoolRefresh'
 export * from './useSwap'
 export * from './useTokenList'
 export * from './useSolanaConnection'

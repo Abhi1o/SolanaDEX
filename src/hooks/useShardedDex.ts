@@ -96,13 +96,23 @@ export function useShardedDex() {
   }, [publicKey, signTransaction, signAllTransactions]);
 
   /**
-   * Get pools for a trading pair
+   * Get pools for a trading pair (static config data)
    */
   const getPoolsForPair = useCallback((
     tokenASymbol: string,
     tokenBSymbol: string
   ): ShardedPool[] => {
     return shardedDex.getShardsBySymbol(tokenASymbol, tokenBSymbol);
+  }, []);
+
+  /**
+   * Get pools for a trading pair with real-time blockchain data
+   */
+  const getPoolsForPairRealTime = useCallback(async (
+    tokenASymbol: string,
+    tokenBSymbol: string
+  ) => {
+    return await shardedDex.getShardsWithRealTimeData(tokenASymbol, tokenBSymbol);
   }, []);
 
   /**
@@ -126,6 +136,7 @@ export function useShardedDex() {
     getQuote,
     executeSwap,
     getPoolsForPair,
+    getPoolsForPairRealTime,
     getTradingPairs,
     getTokenBySymbol,
     programId: shardedDex.getProgramId(),

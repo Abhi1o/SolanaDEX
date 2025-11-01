@@ -3,6 +3,7 @@ export * from './solana'
 export * from './formatting'
 export * from './calculations'
 export * from './solanaErrors'
+export * from './fetchUtils'
 
 // Export specific functions from solana-programs to avoid conflicts
 export {

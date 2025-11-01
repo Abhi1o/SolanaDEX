@@ -593,17 +593,82 @@ class ShardedDexService {
   }
 
   /**
-   * Get all shards for a trading pair by symbols
-   * 
+   * Get all shards for a trading pair by symbols (static config data)
+   *
    * @param symbolA - Token A symbol (e.g., 'USDC')
    * @param symbolB - Token B symbol (e.g., 'USDT')
-   * @returns Array of pools for the pair, sorted by shard number
+   * @returns Array of pools for the pair with static liquidity from config, sorted by shard number
    */
   getShardsBySymbol(symbolA: string, symbolB: string): ShardedPool[] {
     return dexConfig.pools.filter(pool =>
       (pool.tokenASymbol === symbolA && pool.tokenBSymbol === symbolB) ||
       (pool.tokenASymbol === symbolB && pool.tokenBSymbol === symbolA)
     ).sort((a, b) => a.shardNumber - b.shardNumber);
+  }
+
+  /**
+   * Get all shards for a trading pair with real-time blockchain data
+   *
+   * Fetches actual reserve balances from the blockchain for each shard.
+   * This provides accurate, up-to-date liquidity information for the UI.
+   *
+   * @param symbolA - Token A symbol (e.g., 'USDC')
+   * @param symbolB - Token B symbol (e.g., 'USDT')
+   * @returns Promise resolving to array of pools with real-time liquidity data
+   */
+  async getShardsWithRealTimeData(symbolA: string, symbolB: string): Promise<Array<ShardedPool & {
+    realTimeReserveA?: string;
+    realTimeReserveB?: string;
+    dataSource: 'blockchain' | 'config';
+  }>> {
+    const pools = this.getShardsBySymbol(symbolA, symbolB);
+
+    console.log(`🔄 Fetching real-time data for ${pools.length} shards (${symbolA}/${symbolB})`);
+
+    // Fetch real-time data for all pools in parallel
+    const poolsWithRealTimeData = await Promise.all(
+      pools.map(async (pool) => {
+        try {
+          const state = await this.getPoolState(pool);
+
+          // Convert reserves to human-readable format
+          const tokenA = dexConfig.tokens.find(t => t.mint === pool.tokenA);
+          const tokenB = dexConfig.tokens.find(t => t.mint === pool.tokenB);
+
+          if (!tokenA || !tokenB) {
+            console.warn(`⚠️  Token config not found for pool ${pool.poolAddress}`);
+            return {
+              ...pool,
+              dataSource: 'config' as const
+            };
+          }
+
+          const realTimeReserveA = (Number(state.reserveA) / Math.pow(10, tokenA.decimals)).toString();
+          const realTimeReserveB = (Number(state.reserveB) / Math.pow(10, tokenB.decimals)).toString();
+
+          console.log(`✅ Shard ${pool.shardNumber}: ${realTimeReserveA} ${symbolA} / ${realTimeReserveB} ${symbolB}`);
+
+          return {
+            ...pool,
+            realTimeReserveA,
+            realTimeReserveB,
+            liquidityA: realTimeReserveA, // Update liquidityA with real-time data
+            liquidityB: realTimeReserveB, // Update liquidityB with real-time data
+            dataSource: state.lastUpdated > 0 ? 'blockchain' as const : 'config' as const
+          };
+        } catch (error) {
+          console.error(`❌ Failed to fetch real-time data for shard ${pool.shardNumber}:`, error);
+          return {
+            ...pool,
+            dataSource: 'config' as const
+          };
+        }
+      })
+    );
+
+    console.log(`✅ Real-time data fetched for ${poolsWithRealTimeData.filter(p => p.dataSource === 'blockchain').length}/${pools.length} shards`);
+
+    return poolsWithRealTimeData;
   }
 
   /**

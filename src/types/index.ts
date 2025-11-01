@@ -150,6 +150,11 @@ export interface Pool {
   // AMM-specific data
   ammType: 'constant_product' | 'stable' | 'concentrated';
   curveType?: string;
+
+  // Blockchain data tracking (for real-time pool data feature)
+  dataSource?: 'config' | 'blockchain' | 'hybrid';
+  lastBlockchainFetch?: number;
+  blockchainFetchError?: string | null;
 }
 
 // ============================================================================

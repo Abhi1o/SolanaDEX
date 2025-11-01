@@ -27,17 +27,31 @@ import {
   getAccount,
 } from "@solana/spl-token";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { usePoolRefresh } from "@/hooks/usePoolRefresh";
+import { ErrorRecoveryPanel } from "@/components/ui/ErrorRecoveryPanel";
 import dexConfig from "@/config/dex-config.json";
 
 export default function LiquidityPage() {
   const { pools } = usePools();
   const { isConnected, tokenBalances, solBalance, solanaWallet, publicKey } =
     useWallet();
-  const { positions } = useLiquidityPositions();
+  const { positions, refreshAfterOperation } = useLiquidityPositions();
   const { connection } = useConnection();
   const { addTransaction } = useTransactionStore();
   const { showSuccess, showError, showInfo, showWarning } =
     useNotificationStore();
+  
+  // Integrate pool refresh hook for real-time data (Requirement 1.1, 4.1, 4.4, 5.1)
+  const { 
+    isRefreshing, 
+    isStale, 
+    manualRefresh, 
+    error: refreshError,
+    consecutiveFailures 
+  } = usePoolRefresh({
+    enabled: true,
+    refreshInterval: 10000, // 10 seconds
+  });
 
   const [activeTab, setActiveTab] = useState<"add" | "remove">("add");
 
@@ -60,6 +74,7 @@ export default function LiquidityPage() {
   // UI state
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastTransactionTime, setLastTransactionTime] = useState<number>(0);
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
   >({});
@@ -115,32 +130,27 @@ export default function LiquidityPage() {
         (p) => p.id === selectedShard.poolAddress
       );
       if (shardPool) {
-        // ✅ CRITICAL FIX: Fetch ACTUAL LP supply from blockchain
-        // The pool loader uses sqrt formula with hardcoded config values which is WRONG
-        // We need to fetch the real LP supply from the blockchain
-        
-        // For now, use the API reserves and calculate LP supply properly
-        // TODO: Fetch actual LP supply from blockchain mint account
+        // ✅ FIXED: Use ACTUAL LP supply from blockchain (fetched by poolBlockchainFetcher)
+        // The shardPool object already contains the correct blockchain-fetched LP supply
+        // We only need to update reserves from the API shard data
         const freshReserveA = BigInt(selectedShard.reserves.tokenA);
         const freshReserveB = BigInt(selectedShard.reserves.tokenB);
-        
-        // Calculate LP supply using the same formula as the pool loader for consistency
-        // This is still an approximation - ideally we'd fetch from blockchain
-        const calculatedLpSupply = BigInt(Math.floor(Math.sqrt(Number(freshReserveA) * Number(freshReserveB))));
-        
+
         const updatedPool = {
           ...shardPool,
           reserveA: freshReserveA,
           reserveB: freshReserveB,
-          lpTokenSupply: calculatedLpSupply,
+          // ✅ CRITICAL: Use blockchain-fetched LP supply, NOT calculated
+          // shardPool.lpTokenSupply is already fetched from blockchain via connection.getTokenSupply()
+          lpTokenSupply: shardPool.lpTokenSupply,
         };
-        
-        console.log('🔄 Using fresh data from API:', {
+
+        console.log('🔄 Using fresh data from API + blockchain:', {
           poolAddress: selectedShard.poolAddress,
           reserveA: selectedShard.reserves.tokenA,
           reserveB: selectedShard.reserves.tokenB,
-          lpTokenSupply: calculatedLpSupply.toString(),
-          source: 'API reserves + calculated LP supply'
+          lpTokenSupply: shardPool.lpTokenSupply.toString(),
+          source: 'API reserves + blockchain LP supply'
         });
         return updatedPool;
       }
@@ -615,6 +625,25 @@ export default function LiquidityPage() {
 
   // Add liquidity transaction logic (Subtask 3.8)
   const handleAddLiquidity = async () => {
+    // ✅ CRITICAL: Prevent duplicate transaction submissions
+    const now = Date.now();
+    const DEBOUNCE_MS = 3000; // 3 seconds minimum between transactions
+
+    if (isProcessing) {
+      console.warn('⚠️ Transaction already in progress, ignoring duplicate call');
+      return;
+    }
+
+    if (now - lastTransactionTime < DEBOUNCE_MS) {
+      const waitTime = Math.ceil((DEBOUNCE_MS - (now - lastTransactionTime)) / 1000);
+      console.warn('⚠️ Transaction submitted too quickly, please wait', {
+        timeSinceLastTx: now - lastTransactionTime,
+        debounceMs: DEBOUNCE_MS
+      });
+      showWarning("Please Wait", `Please wait ${waitTime}s before trying again to prevent duplicate transactions`);
+      return;
+    }
+
     if (!isConnected || !currentPool || !selectedTokenA || !selectedTokenB) {
       const errorMsg = "Please connect your wallet and select tokens";
       setError(errorMsg);
@@ -631,9 +660,13 @@ export default function LiquidityPage() {
     }
 
     setIsProcessing(true);
+    setLastTransactionTime(now);
     setError(null);
 
     try {
+      // Fetch current pool reserves before liquidity operation (Requirement 1.1, 2.1)
+      console.log('🔄 Refreshing pool data before liquidity operation');
+      await manualRefresh();
       const amountABigInt = BigInt(Math.floor(parseFloat(amountA) * Math.pow(10, selectedTokenA.decimals)));
       const amountBBigInt = BigInt(Math.floor(parseFloat(amountB) * Math.pow(10, selectedTokenB.decimals)));
 
@@ -716,6 +749,15 @@ export default function LiquidityPage() {
           `Added ${amountA} ${selectedTokenA.symbol} and ${amountB} ${selectedTokenB.symbol} to the pool`
         );
         
+        // Refresh pool data after successful liquidity transaction (Requirement 4.3)
+        console.log('🔄 Refreshing pool data after successful liquidity addition');
+        await manualRefresh();
+        
+        // Refresh LP positions after successful liquidity addition (Requirement 2.1, 2.4)
+        refreshAfterOperation().catch(err => {
+          console.warn('Failed to refresh LP positions:', err);
+        });
+        
         // Reset form after animation
         setTimeout(() => {
           setAmountA('');
@@ -786,9 +828,18 @@ export default function LiquidityPage() {
   };
 
   // Handle liquidity removed successfully
-  const handleLiquidityRemoved = (poolId: string, signature: string) => {
+  const handleLiquidityRemoved = async (poolId: string, signature: string) => {
     console.log("Liquidity removed:", { poolId, signature });
     setShowRemoveModal(false);
+    
+    // Refresh pool data after successful liquidity transaction (Requirement 4.3)
+    console.log('🔄 Refreshing pool data after successful liquidity removal');
+    await manualRefresh();
+    
+    // Refresh LP positions after successful liquidity removal (Requirement 2.1, 2.4)
+    refreshAfterOperation().catch(err => {
+      console.warn('Failed to refresh LP positions:', err);
+    });
   };
 
   // Get token pairs for display
@@ -825,13 +876,58 @@ export default function LiquidityPage() {
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         {/* Page Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl sm:text-5xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">
-            Liquidity Pools
-          </h1>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <h1 className="text-4xl sm:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">
+              Liquidity Pools
+            </h1>
+            {/* Manual refresh button and status indicators (Requirement 5.1, 5.2) */}
+            <button
+              onClick={manualRefresh}
+              disabled={isRefreshing}
+              className="p-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all disabled:opacity-50"
+              title="Refresh pool data"
+            >
+              <svg
+                className={`w-5 h-5 text-gray-300 ${isRefreshing ? 'animate-spin' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+          </div>
+          {/* Staleness indicator (Requirement 5.3) */}
+          {isStale && (
+            <div className="inline-flex items-center gap-2 px-3 py-1 backdrop-blur-xl bg-yellow-500/10 border border-yellow-500/30 rounded-full text-xs text-yellow-400 mb-2">
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              Data may be outdated
+            </div>
+          )}
           <p className="text-base sm:text-lg text-gray-400 font-light">
             Provide liquidity to earn trading fees from swaps
           </p>
         </div>
+
+        {/* Error Recovery Panel - Show blockchain connection errors (Requirement 1.4, 4.4, 5.1) */}
+        {refreshError && consecutiveFailures > 2 && (
+          <div className="mb-8">
+            <ErrorRecoveryPanel
+              error={refreshError}
+              consecutiveFailures={consecutiveFailures}
+              isRetrying={isRefreshing}
+              onRetry={manualRefresh}
+              severity="error"
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Side - Add/Remove Liquidity */}

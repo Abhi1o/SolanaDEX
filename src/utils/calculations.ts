@@ -3,7 +3,7 @@
 // Memoization cache for expensive calculations
 const calculationCache = new Map<string, any>();
 const CACHE_MAX_SIZE = 1000;
-const CACHE_TTL = 30000; // 30 seconds
+const CACHE_TTL = 5000; // 5 seconds - reduced from 30s for more accurate calculations with real-time pool data
 
 interface CacheEntry<T> {
   value: T;

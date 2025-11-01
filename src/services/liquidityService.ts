@@ -380,8 +380,12 @@ export class LiquidityService {
         wallet.publicKey
       );
 
-      // Get recent blockhash
-      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+      // ✅ CRITICAL: Get fresh blockhash to prevent "already processed" errors
+      // Using 'finalized' commitment for more unique blockhashes
+      console.log('🔄 Fetching fresh blockhash for transaction...');
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+      console.log('✅ Got blockhash:', blockhash.slice(0, 8) + '...');
+
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = wallet.publicKey;
 
@@ -447,10 +451,21 @@ export class LiquidityService {
       };
 
     } catch (error) {
-      const errorMessage = this.parseTransactionError(error);
+      let errorMessage = this.parseTransactionError(error);
+
+      // ✅ Special handling for "already processed" error
+      if (errorMessage.includes('already been processed')) {
+        console.error('❌ Duplicate transaction detected!');
+        console.error('   This usually happens when:');
+        console.error('   1. Button was clicked multiple times quickly');
+        console.error('   2. Same blockhash was used for two transactions');
+        console.error('   3. Transaction was retried too quickly');
+        errorMessage = 'Transaction was already submitted. Please wait a few seconds before trying again.';
+      }
+
       console.error('Add liquidity failed:', error);
       onStatusUpdate?.(TransactionStatus.FAILED, undefined, errorMessage);
-      
+
       return {
         signature: '',
         status: TransactionStatus.FAILED,
