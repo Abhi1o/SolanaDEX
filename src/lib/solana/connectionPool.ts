@@ -270,7 +270,7 @@ export class SolanaConnectionPool {
 const DEVNET_ENDPOINTS: RpcEndpointConfig[] = [
   // Free public endpoints (already included)
   { url: 'https://api.devnet.solana.com' },
-  { url: 'https://rpc.ankr.com/solana_devnet' },
+  { url: 'https://solana-devnet.g.alchemy.com/v2/-f0lKfodonOgvqviPDgyB' },
   { url: 'https://devnet.helius-rpc.com/?api-key=f4d5ea3d-bea6-48f6-ba0f-323908a8f19b' },
 
   // Helius with your API key (RECOMMENDED - get free key at helius.dev)
