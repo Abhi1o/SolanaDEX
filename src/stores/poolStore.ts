@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Connection } from '@solana/web3.js';
 import { Pool } from '@/types';
+import { loadPoolsFromBlockchain } from '@/lib/solana/poolLoader';
 import { enrichPoolsWithBlockchainData } from '@/lib/solana/poolBlockchainFetcher';
 
 interface PoolStore {
@@ -25,7 +26,7 @@ interface PoolStore {
   resetFailures: () => void;
 }
 
-const STALE_THRESHOLD = 2 * 60 * 1000; // 2 minutes in milliseconds
+const STALE_THRESHOLD = 60 * 1000; // 60 seconds (1 minute) in milliseconds
 
 export const usePoolStore = create<PoolStore>((set, get) => ({
   pools: [],
@@ -37,11 +38,21 @@ export const usePoolStore = create<PoolStore>((set, get) => ({
   isInitialLoad: false,
   isBackgroundRefresh: false,
   
-  setPools: (pools) => set({ 
-    pools,
-    lastFetchTime: Date.now(),
-    isStale: false
-  }),
+  setPools: (pools) => {
+    const now = Date.now();
+    // Mark all pools as fresh when setting new data
+    const freshPools = pools.map(pool => ({
+      ...pool,
+      isFresh: true,
+      lastBlockchainFetch: now
+    }));
+    
+    set({ 
+      pools: freshPools,
+      lastFetchTime: now,
+      isStale: false
+    });
+  },
   
   addPool: (pool) => set((state) => ({ 
     pools: [...state.pools, pool] 
@@ -57,10 +68,22 @@ export const usePoolStore = create<PoolStore>((set, get) => ({
   
   setError: (error) => set({ error }),
   
-  setLastFetchTime: (time) => set((state) => ({
-    lastFetchTime: time,
-    isStale: Date.now() - time > STALE_THRESHOLD
-  })),
+  setLastFetchTime: (time) => set((state) => {
+    const now = Date.now();
+    const isStale = now - time > STALE_THRESHOLD;
+    
+    // Mark pools as stale if threshold exceeded
+    const updatedPools = state.pools.map(pool => ({
+      ...pool,
+      isFresh: !isStale
+    }));
+    
+    return {
+      lastFetchTime: time,
+      isStale,
+      pools: updatedPools
+    };
+  }),
   
   clearCache: () => set({
     pools: [],
@@ -92,19 +115,27 @@ export const usePoolStore = create<PoolStore>((set, get) => ({
     });
     
     try {
-      // Enrich all pools with blockchain data
-      const enrichedPools = await enrichPoolsWithBlockchainData(connection, state.pools);
+      // Load pools from blockchain (always fetches real-time data)
+      const pools = await loadPoolsFromBlockchain(connection);
       
       // Count how many pools successfully fetched blockchain data
-      const blockchainDataCount = enrichedPools.filter(p => p.dataSource === 'blockchain').length;
-      const fallbackDataCount = enrichedPools.length - blockchainDataCount;
+      const blockchainDataCount = pools.filter(p => p.dataSource === 'blockchain').length;
+      const fallbackDataCount = pools.length - blockchainDataCount;
       
       console.log(`✅ Pool fetch complete: ${blockchainDataCount} live, ${fallbackDataCount} cached`);
       
-      // Update store with enriched pools
+      const now = Date.now();
+      // Mark all pools as fresh on successful fetch
+      const freshPools = pools.map(pool => ({
+        ...pool,
+        isFresh: true,
+        lastBlockchainFetch: now
+      }));
+      
+      // Update store with pools
       set({
-        pools: enrichedPools,
-        lastFetchTime: Date.now(),
+        pools: freshPools,
+        lastFetchTime: now,
         isStale: false,
         loading: false,
         error: null,
@@ -116,14 +147,23 @@ export const usePoolStore = create<PoolStore>((set, get) => ({
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('❌ Failed to fetch pools:', errorMessage);
       
-      set((state) => ({
-        error: errorMessage,
-        loading: false,
-        isStale: true,
-        consecutiveFailures: state.consecutiveFailures + 1,
-        isInitialLoad: false,
-        isBackgroundRefresh: false
-      }));
+      set((state) => {
+        // Mark existing pools as stale on fetch failure
+        const stalePools = state.pools.map(pool => ({
+          ...pool,
+          isFresh: false
+        }));
+        
+        return {
+          pools: stalePools,
+          error: errorMessage,
+          loading: false,
+          isStale: true,
+          consecutiveFailures: state.consecutiveFailures + 1,
+          isInitialLoad: false,
+          isBackgroundRefresh: false
+        };
+      });
     }
   },
   
@@ -156,10 +196,18 @@ export const usePoolStore = create<PoolStore>((set, get) => ({
       
       console.log(`✅ Pool refresh complete: ${blockchainDataCount} live, ${fallbackDataCount} cached`);
       
+      const now = Date.now();
+      // Mark all pools as fresh on successful refresh
+      const freshPools = enrichedPools.map(pool => ({
+        ...pool,
+        isFresh: true,
+        lastBlockchainFetch: now
+      }));
+      
       // Update store with enriched pools and reset consecutiveFailures on success
       set({
-        pools: enrichedPools,
-        lastFetchTime: Date.now(),
+        pools: freshPools,
+        lastFetchTime: now,
         isStale: false,
         loading: false,
         error: null,
@@ -171,14 +219,23 @@ export const usePoolStore = create<PoolStore>((set, get) => ({
       console.error('❌ Failed to refresh pools:', errorMessage);
       
       // Keep existing pool data on refresh failure, increment consecutiveFailures
-      set((state) => ({
-        error: errorMessage,
-        loading: false,
-        isStale: true,
-        consecutiveFailures: state.consecutiveFailures + 1,
-        isBackgroundRefresh: false
-        // Note: pools are NOT cleared - existing data is retained
-      }));
+      set((state) => {
+        // Mark existing pools as stale on refresh failure
+        const stalePools = state.pools.map(pool => ({
+          ...pool,
+          isFresh: false
+        }));
+        
+        return {
+          pools: stalePools,
+          error: errorMessage,
+          loading: false,
+          isStale: true,
+          consecutiveFailures: state.consecutiveFailures + 1,
+          isBackgroundRefresh: false
+          // Note: pools are NOT cleared - existing data is retained
+        };
+      });
     }
   },
   

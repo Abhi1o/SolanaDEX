@@ -1,30 +1,31 @@
 /**
- * Hook to load pools from dex-config.json
+ * Hook to load pools from blockchain
+ * 
+ * This hook loads pool metadata from dex-config.json and fetches real-time data
+ * from the Solana blockchain. It replaces the old config-only loading approach.
  */
 
 import { useEffect } from 'react';
 import { usePoolStore } from '@/stores/poolStore';
-import { loadPoolsFromConfig } from '@/lib/solana/poolLoader';
+import { useSolanaConnection } from './useSolanaConnection';
 
+/**
+ * Load pools from blockchain on mount
+ * 
+ * This hook triggers an initial pool fetch from the blockchain when the component mounts.
+ * It uses the pool store's fetchPools method which loads pool metadata from config
+ * and enriches it with real-time blockchain data.
+ * 
+ * @deprecated Use usePoolRefresh hook instead for automatic refresh functionality
+ */
 export function usePoolsFromConfig() {
-  const { setPools, setLoading, setError } = usePoolStore();
+  const { connection } = useSolanaConnection();
+  const { fetchPools } = usePoolStore();
 
   useEffect(() => {
-    const loadPools = () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const pools = loadPoolsFromConfig();
-        setPools(pools);
-      } catch (error) {
-        console.error('Failed to load pools from config:', error);
-        setError(error instanceof Error ? error.message : 'Failed to load pools');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPools();
-  }, [setPools, setLoading, setError]);
+    // Fetch pools from blockchain on mount
+    fetchPools(connection, true).catch(error => {
+      console.error('Failed to load pools from blockchain:', error);
+    });
+  }, [connection, fetchPools]);
 }

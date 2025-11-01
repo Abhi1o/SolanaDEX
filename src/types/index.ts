@@ -155,6 +155,7 @@ export interface Pool {
   dataSource?: 'config' | 'blockchain' | 'hybrid';
   lastBlockchainFetch?: number;
   blockchainFetchError?: string | null;
+  isFresh?: boolean; // True if fetched within last 60 seconds
 }
 
 // ============================================================================

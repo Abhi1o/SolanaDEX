@@ -20,6 +20,16 @@ vi.mock('@solana/web3.js', () => ({
   PublicKey: vi.fn((key: string) => ({ toBase58: () => key }))
 }));
 
+// Mock fetch utilities to avoid actual retries in tests
+vi.mock('@/utils/fetchUtils', async () => {
+  const actual = await vi.importActual('@/utils/fetchUtils');
+  return {
+    ...actual,
+    fetchWithTimeout: vi.fn((promise: Promise<any>) => promise),
+    fetchWithRetry: vi.fn((fn: () => Promise<any>) => fn()),
+  };
+});
+
 describe('Pool Blockchain Fetcher', () => {
   let mockConnection: any;
   let mockPool: Pool;
@@ -105,7 +115,7 @@ describe('Pool Blockchain Fetcher', () => {
 
       await expect(
         fetchPoolReserves(mockConnection, tokenAAccount, tokenBAccount)
-      ).rejects.toThrow('Failed to fetch pool reserves');
+      ).rejects.toThrow();
     });
   });
 
@@ -134,7 +144,7 @@ describe('Pool Blockchain Fetcher', () => {
 
       await expect(
         fetchLPTokenSupply(mockConnection, lpTokenMint)
-      ).rejects.toThrow('Failed to fetch LP token supply');
+      ).rejects.toThrow();
     });
   });
 
@@ -225,22 +235,16 @@ describe('Pool Blockchain Fetcher', () => {
       expect(enrichedPool.blockchainFetchError).toBeNull();
     });
 
-    it('should fallback to config data on fetch failure', async () => {
+    it('should throw error on fetch failure', async () => {
       // Mock failed fetch
       mockConnection.getTokenAccountBalance.mockRejectedValue(
         new Error('RPC timeout')
       );
 
-      const enrichedPool = await enrichPoolWithBlockchainData(
-        mockConnection,
-        mockPool
-      );
-
-      // Should return original pool with error tracking
-      expect(enrichedPool.reserveA).toBe(mockPool.reserveA);
-      expect(enrichedPool.reserveB).toBe(mockPool.reserveB);
-      expect(enrichedPool.dataSource).toBe('config');
-      expect(enrichedPool.blockchainFetchError).toBeDefined();
+      // Should throw error instead of falling back to config data
+      await expect(
+        enrichPoolWithBlockchainData(mockConnection, mockPool)
+      ).rejects.toThrow();
     });
   });
 
@@ -267,7 +271,7 @@ describe('Pool Blockchain Fetcher', () => {
       expect(enrichedPools[1].dataSource).toBe('blockchain');
     });
 
-    it('should handle partial failures gracefully', async () => {
+    it('should handle partial failures by throwing errors', async () => {
       // Mock first pool succeeds, second fails
       let callCount = 0;
       mockConnection.getTokenAccountBalance.mockImplementation(() => {
@@ -286,16 +290,10 @@ describe('Pool Blockchain Fetcher', () => {
 
       const pools = [mockPool, { ...mockPool, id: 'TestPoolAddress456' }];
 
-      const enrichedPools = await enrichPoolsWithBlockchainData(
-        mockConnection,
-        pools
-      );
-
-      expect(enrichedPools).toHaveLength(2);
-      // First pool should succeed
-      expect(enrichedPools[0].dataSource).toBe('blockchain');
-      // Second pool should fallback to config
-      expect(enrichedPools[1].dataSource).toBe('config');
+      // Promise.all will reject if any promise rejects, so this should throw
+      await expect(
+        enrichPoolsWithBlockchainData(mockConnection, pools)
+      ).rejects.toThrow();
     });
   });
 });

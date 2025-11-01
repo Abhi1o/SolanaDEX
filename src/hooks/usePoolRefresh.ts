@@ -24,6 +24,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { usePoolStore } from '@/stores/poolStore';
 import { useSolanaConnection } from './useSolanaConnection';
 import { useNotificationStore } from '@/stores/notificationStore';
+import { clearServiceWorkerCache } from '@/utils/cacheUtils';
 
 /**
  * Configuration options for pool refresh hook
@@ -43,14 +44,18 @@ export interface UsePoolRefreshOptions {
  * Return value from pool refresh hook
  */
 export interface UsePoolRefreshReturn {
-  /** Whether a refresh is currently in progress */
-  isRefreshing: boolean;
+  /** Whether initial load is in progress */
+  isInitialLoad: boolean;
+  /** Whether background refresh is in progress */
+  isBackgroundRefresh: boolean;
   /** Timestamp of last successful refresh */
   lastRefreshTime: number;
   /** Whether the current data is stale (older than 1 minute) */
   isStale: boolean;
   /** Function to manually trigger a refresh */
   manualRefresh: () => Promise<void>;
+  /** Function to clear cache and trigger fresh fetch */
+  clearAndRefresh: () => Promise<void>;
   /** Last error that occurred during refresh, if any */
   error: Error | null;
   /** Number of consecutive failures (for debugging) */
@@ -70,7 +75,7 @@ interface ErrorRecoveryState {
 }
 
 // Constants
-const DEFAULT_REFRESH_INTERVAL = 10000; // 10 seconds
+const DEFAULT_REFRESH_INTERVAL = 30000; // 30 seconds (changed from 10s for silent background refresh)
 const STALE_THRESHOLD = 60 * 1000; // 1 minute in milliseconds
 const INITIAL_BACKOFF_DELAY = 1000; // 1 second
 const MAX_BACKOFF_DELAY = 30000; // 30 seconds
@@ -100,14 +105,22 @@ function calculateBackoffDelay(state: ErrorRecoveryState): number {
  * 
  * @example
  * ```tsx
- * const { isRefreshing, isStale, manualRefresh } = usePoolRefresh({
+ * const { 
+ *   isInitialLoad, 
+ *   isBackgroundRefresh, 
+ *   manualRefresh,
+ *   clearAndRefresh 
+ * } = usePoolRefresh({
  *   enabled: true,
- *   refreshInterval: 10000,
+ *   refreshInterval: 30000,
  *   onError: (error) => console.error('Refresh failed:', error)
  * });
  * 
  * // Manual refresh
  * await manualRefresh();
+ * 
+ * // Hard refresh (clear cache)
+ * await clearAndRefresh();
  * ```
  */
 export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefreshReturn {
@@ -125,7 +138,6 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
 
   // Local state
   const [error, setError] = useState<Error | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Error recovery state
   const errorRecoveryRef = useRef<ErrorRecoveryState>({
@@ -134,6 +146,9 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
     backoffDelay: INITIAL_BACKOFF_DELAY,
     maxBackoffDelay: MAX_BACKOFF_DELAY
   });
+
+  // Track if we had previous failures for recovery notification
+  const hadPreviousFailuresRef = useRef(false);
 
   // Refs for cleanup
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -153,27 +168,35 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
    * 
    * Fetches fresh pool data from blockchain and updates the store.
    * Implements exponential backoff on failures.
+   * 
+   * @param isInitial - Whether this is an initial load (vs background refresh)
    */
-  const performRefresh = useCallback(async () => {
-    // Don't refresh if already refreshing
-    if (isRefreshing) {
+  const performRefresh = useCallback(async (isInitial: boolean = false) => {
+    // Don't refresh if already loading
+    if (poolStore.loading) {
       console.log('⏭️  Pool refresh already in progress, skipping');
       return;
     }
 
-    // Don't refresh if no pools loaded yet
-    if (poolStore.pools.length === 0) {
+    // Don't refresh if no pools loaded yet (unless it's initial load)
+    if (!isInitial && poolStore.pools.length === 0) {
       console.log('⏭️  No pools loaded yet, skipping refresh');
       return;
     }
 
-    console.log('🔄 Starting pool refresh');
-    setIsRefreshing(true);
+    console.log(`🔄 Starting pool ${isInitial ? 'initial load' : 'background refresh'}`);
     setError(null);
 
     try {
-      // Call pool store refresh method
-      await poolStore.refreshPools(connection);
+      // Call appropriate pool store method based on load type
+      if (isInitial) {
+        await poolStore.fetchPools(connection, true);
+      } else {
+        await poolStore.refreshPools(connection);
+      }
+
+      // Check if we had failures before (for recovery notification)
+      const hadFailures = hadPreviousFailuresRef.current;
 
       // Reset error recovery state on success
       errorRecoveryRef.current = {
@@ -185,12 +208,13 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
 
       console.log('✅ Pool refresh completed successfully');
 
-      // Show success notification only if recovering from errors
-      if (errorRecoveryRef.current.consecutiveFailures > 0 && isMountedRef.current) {
+      // Show success notification only if recovering from errors (Requirement 6.6)
+      if (hadFailures && isMountedRef.current) {
         notificationStore.showSuccess(
           'Connection Restored',
           'Pool data is now updating from the blockchain.'
         );
+        hadPreviousFailuresRef.current = false;
       }
 
       // Call success callback if provided
@@ -213,28 +237,25 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
 
       if (isMountedRef.current) {
         setError(refreshError);
+        hadPreviousFailuresRef.current = true;
 
-        // Show error notification based on failure count
-        if (recovery.consecutiveFailures === 1) {
-          // First failure - show warning
+        // Improved error notification logic (Requirement 2.4, 6.2, 6.3, 6.6)
+        if (recovery.consecutiveFailures === 1 || recovery.consecutiveFailures === 2) {
+          // First 2 failures - no notification (silent retry)
+          console.log('   Silent retry - no notification shown');
+        } else if (recovery.consecutiveFailures === 3) {
+          // Third failure - show warning toast
           notificationStore.showWarning(
             'Connection Issue',
             'Having trouble fetching pool data. Retrying...',
             true
           );
-        } else if (recovery.consecutiveFailures === 3) {
-          // Third failure - show error with retry info
+        } else if (recovery.consecutiveFailures >= 4) {
+          // Fourth+ failures - show error banner
           notificationStore.showError(
             'Connection Failed',
-            `Unable to fetch pool data. Will retry in ${Math.round(recovery.backoffDelay / 1000)}s.`,
-            true
-          );
-        } else if (recovery.consecutiveFailures >= 5) {
-          // Multiple failures - show persistent error
-          notificationStore.showError(
-            'Blockchain Connection Lost',
-            'Displaying cached data. Check your internet connection.',
-            false
+            `Unable to fetch pool data after ${recovery.consecutiveFailures} attempts. Displaying cached data.`,
+            false // Don't auto-close
           );
         }
 
@@ -243,42 +264,79 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
           onError(refreshError);
         }
       }
-    } finally {
-      if (isMountedRef.current) {
-        setIsRefreshing(false);
-      }
     }
-  }, [connection, poolStore, isRefreshing, onError, onSuccess]);
+  }, [connection, poolStore, onError, onSuccess, notificationStore]);
 
   /**
    * Manual refresh function
    * 
    * Allows components to trigger a refresh on-demand.
-   * Respects backoff delays if there have been recent failures.
+   * Bypasses backoff delays but shows warning if in backoff period.
    */
   const manualRefresh = useCallback(async () => {
     const recovery = errorRecoveryRef.current;
     
-    // Check if we should respect backoff delay
+    // Check if we're in backoff period (Requirement 2.2, 2.3)
     if (recovery.consecutiveFailures > 0) {
       const timeSinceLastFailure = Date.now() - recovery.lastFailureTime;
       
       if (timeSinceLastFailure < recovery.backoffDelay) {
         const remainingDelay = recovery.backoffDelay - timeSinceLastFailure;
-        console.warn(`⏳ Manual refresh requested but in backoff period`);
+        console.warn(`⏳ Manual refresh bypassing backoff period`);
         console.warn(`   Remaining delay: ${remainingDelay}ms`);
         console.warn(`   Consecutive failures: ${recovery.consecutiveFailures}`);
         
-        // Still allow manual refresh but warn user
-        // In a production app, you might want to prevent this entirely
+        // Show warning to user
+        notificationStore.showWarning(
+          'Retrying Connection',
+          'Attempting to reconnect...',
+          true
+        );
       }
     }
 
-    await performRefresh();
-  }, [performRefresh]);
+    // Perform background refresh (not initial load)
+    await performRefresh(false);
+  }, [performRefresh, notificationStore]);
 
   /**
-   * Setup automatic polling
+   * Clear cache and refresh function
+   * 
+   * Clears all cached data and triggers a fresh fetch.
+   * Used for hard refresh scenarios.
+   * (Requirement 1.3, 7.1)
+   */
+  const clearAndRefresh = useCallback(async () => {
+    console.log('🗑️  Clearing cache and performing hard refresh');
+    
+    try {
+      // Clear service worker cache if applicable
+      await clearServiceWorkerCache();
+    } catch (error) {
+      console.warn('Failed to clear service worker cache:', error);
+      // Continue with refresh even if cache clearing fails
+    }
+    
+    // Clear the pool store cache
+    poolStore.clearCache();
+    
+    // Reset error recovery state
+    errorRecoveryRef.current = {
+      consecutiveFailures: 0,
+      lastFailureTime: 0,
+      backoffDelay: INITIAL_BACKOFF_DELAY,
+      maxBackoffDelay: MAX_BACKOFF_DELAY
+    };
+    hadPreviousFailuresRef.current = false;
+    setError(null);
+    
+    // Trigger initial fetch
+    await performRefresh(true);
+  }, [poolStore, performRefresh]);
+
+  /**
+   * Setup automatic polling with exponential backoff
+   * (Requirements 2.2, 2.3, 8.1, 8.2, 8.4)
    */
   useEffect(() => {
     // Don't setup polling if disabled
@@ -290,24 +348,36 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
     console.log(`🔄 Setting up pool refresh polling (interval: ${refreshInterval}ms)`);
 
     // Perform initial refresh on mount
-    performRefresh();
+    performRefresh(true);
 
-    // Setup polling interval
+    // Setup polling interval for background refresh
     pollingIntervalRef.current = setInterval(() => {
       const recovery = errorRecoveryRef.current;
+      const now = Date.now();
+      const timeSinceLastFetch = now - poolStore.lastFetchTime;
+      const isDataStale = timeSinceLastFetch > STALE_THRESHOLD;
       
-      // If we have consecutive failures, check if we should skip this poll
+      // Implement proper exponential backoff (Requirement 2.2, 2.3)
+      // Skip automatic refresh during backoff period
       if (recovery.consecutiveFailures > 0) {
-        const timeSinceLastFailure = Date.now() - recovery.lastFailureTime;
+        const timeSinceLastFailure = now - recovery.lastFailureTime;
         
         if (timeSinceLastFailure < recovery.backoffDelay) {
-          console.log(`⏭️  Skipping poll due to backoff (${recovery.backoffDelay}ms)`);
+          console.log(`⏭️  Skipping automatic refresh due to backoff`);
+          console.log(`   Backoff delay: ${recovery.backoffDelay}ms`);
+          console.log(`   Time since failure: ${timeSinceLastFailure}ms`);
+          console.log(`   Remaining: ${recovery.backoffDelay - timeSinceLastFailure}ms`);
           return;
         }
       }
 
-      // Perform refresh
-      performRefresh();
+      // Trigger background refresh when data becomes stale (Requirement 5.2, 5.3)
+      if (isDataStale) {
+        console.log(`🔄 Data is stale (${Math.floor(timeSinceLastFetch / 1000)}s old), triggering background refresh`);
+      }
+
+      // Perform silent background refresh (Requirement 8.1, 8.2, 8.4)
+      performRefresh(false);
     }, refreshInterval);
 
     // Cleanup on unmount
@@ -322,6 +392,50 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
   }, [enabled, refreshInterval, performRefresh]);
 
   /**
+   * Page visibility detection for hard refresh
+   * (Requirement 1.3, 7.1)
+   * 
+   * Detects when user returns to the page after a long absence
+   * and triggers a hard refresh to ensure fresh data.
+   */
+  useEffect(() => {
+    if (!enabled) return;
+
+    // Track when the page was last visible
+    let lastVisibleTime = Date.now();
+    const ABSENCE_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        const timeSinceLastVisible = now - lastVisibleTime;
+
+        console.log(`👁️  Page became visible (absence: ${Math.floor(timeSinceLastVisible / 1000)}s)`);
+
+        // If user was away for more than threshold, trigger hard refresh
+        if (timeSinceLastVisible > ABSENCE_THRESHOLD) {
+          console.log('🔄 Long absence detected, triggering hard refresh');
+          clearAndRefresh();
+        } else {
+          // Short absence, just update the timestamp
+          lastVisibleTime = now;
+        }
+      } else {
+        // Page became hidden, record the time
+        lastVisibleTime = Date.now();
+        console.log('👁️  Page became hidden');
+      }
+    };
+
+    // Listen for visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [enabled, clearAndRefresh]);
+
+  /**
    * Cleanup on unmount
    */
   useEffect(() => {
@@ -331,12 +445,14 @@ export function usePoolRefresh(options: UsePoolRefreshOptions = {}): UsePoolRefr
   }, []);
 
   return {
-    isRefreshing,
+    isInitialLoad: poolStore.isInitialLoad,
+    isBackgroundRefresh: poolStore.isBackgroundRefresh,
     lastRefreshTime: poolStore.lastFetchTime,
     isStale: isStale(),
     manualRefresh,
+    clearAndRefresh,
     error,
-    consecutiveFailures: errorRecoveryRef.current.consecutiveFailures,
+    consecutiveFailures: poolStore.consecutiveFailures,
     currentBackoffDelay: errorRecoveryRef.current.backoffDelay
   };
 }

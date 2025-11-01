@@ -35,6 +35,8 @@ const DEFAULT_ENDPOINTS: Record<SolanaCluster, RpcEndpoint[]> = {
   ],
   [SolanaCluster.DEVNET]: [
     { url: 'https://api.devnet.solana.com', cluster: SolanaCluster.DEVNET, priority: 1 },
+    { url: 'https://rpc.ankr.com/solana_devnet', cluster: SolanaCluster.DEVNET, priority: 2 },
+    { url: 'https://devnet.helius-rpc.com/?api-key=public', cluster: SolanaCluster.DEVNET, priority: 3 },
   ],
   [SolanaCluster.TESTNET]: [
     { url: 'https://api.testnet.solana.com', cluster: SolanaCluster.TESTNET, priority: 1 },
@@ -56,9 +58,14 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
   
   const { showWarning, showError } = useNotificationStore();
 
-  const getNextEndpoint = useCallback((): RpcEndpoint | null => {
+  const getNextEndpoint = useCallback((skipCurrent = false): RpcEndpoint | null => {
     const endpoints = DEFAULT_ENDPOINTS[cluster];
-    
+
+    if (skipCurrent && currentEndpoint) {
+      // If skipping current, increment to avoid it
+      endpointIndexRef.current++;
+    }
+
     // Filter out failed endpoints
     const availableEndpoints = endpoints.filter(
       (ep) => !failedEndpointsRef.current.has(ep.url)
@@ -66,16 +73,20 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
 
     if (availableEndpoints.length === 0) {
       // Reset failed endpoints if all have failed
+      console.log('🔄 All RPC endpoints failed, resetting and retrying');
       failedEndpointsRef.current.clear();
+      endpointIndexRef.current = 0;
       return endpoints[0] || null;
     }
 
-    // Get next endpoint in rotation
+    // Round-robin: Get next endpoint in rotation
     const endpoint = availableEndpoints[endpointIndexRef.current % availableEndpoints.length];
     endpointIndexRef.current++;
-    
+
+    console.log(`🔀 Rotating to RPC endpoint: ${endpoint.url} (priority: ${endpoint.priority})`);
+
     return endpoint;
-  }, [cluster]);
+  }, [cluster, currentEndpoint]);
 
   const createConnection = useCallback((endpoint: RpcEndpoint): Connection => {
     return new Connection(endpoint.url, {
@@ -113,10 +124,11 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
         try {
           // Get or create connection
           let conn = connection;
-          
-          if (!conn || !isHealthy) {
-            const endpoint = getNextEndpoint();
-            
+
+          if (!conn || (!isHealthy && attempts > 0)) {
+            // Use round-robin for load balancing
+            const endpoint = getNextEndpoint(attempts > 0);
+
             if (!endpoint) {
               throw new Error('No available RPC endpoints');
             }
@@ -124,14 +136,25 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
             conn = createConnection(endpoint);
             setConnection(conn);
             setCurrentEndpoint(endpoint.url);
-            
+
             if (attempts > 0) {
               showWarning(
                 'Switching RPC',
-                `Trying alternative endpoint...`,
+                `Trying alternative endpoint (${attempts + 1}/${maxRetries})...`,
                 true
               );
             }
+          } else if (!conn) {
+            // First request - initialize with round-robin
+            const endpoint = getNextEndpoint(false);
+
+            if (!endpoint) {
+              throw new Error('No available RPC endpoints');
+            }
+
+            conn = createConnection(endpoint);
+            setConnection(conn);
+            setCurrentEndpoint(endpoint.url);
           }
 
           // Execute operation with timeout
@@ -144,12 +167,27 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
 
           // Success - mark as healthy
           setIsHealthy(true);
+
+          // Remove from failed set if it was there
+          if (currentEndpoint && failedEndpointsRef.current.has(currentEndpoint)) {
+            failedEndpointsRef.current.delete(currentEndpoint);
+          }
+
           return result;
-        } catch (error) {
+        } catch (error: any) {
           lastError = error;
           attempts++;
 
-          console.error(`RPC operation failed (attempt ${attempts}/${maxRetries}):`, error);
+          // Check if it's a rate limit error (429)
+          const isRateLimitError = error?.message?.includes('429') ||
+                                   error?.status === 429 ||
+                                   error?.code === 429;
+
+          if (isRateLimitError) {
+            console.warn(`⚠️  Rate limit hit on ${currentEndpoint}, rotating to next endpoint`);
+          } else {
+            console.error(`❌ RPC operation failed (attempt ${attempts}/${maxRetries}):`, error);
+          }
 
           // Mark current endpoint as failed
           if (currentEndpoint) {
@@ -160,7 +198,7 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
 
           // If not last attempt, try next endpoint
           if (attempts < maxRetries) {
-            const nextEndpoint = getNextEndpoint();
+            const nextEndpoint = getNextEndpoint(true);
             if (nextEndpoint) {
               const newConnection = createConnection(nextEndpoint);
               setConnection(newConnection);
@@ -173,7 +211,7 @@ export function useRpcFallback(options: UseRpcFallbackOptions): UseRpcFallbackRe
       // All attempts failed
       showError(
         'RPC Connection Failed',
-        'Unable to connect to Solana network. Please check your internet connection and try again.',
+        'Unable to connect to Solana network after trying all endpoints. Please try again later.',
         false
       );
 

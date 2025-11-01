@@ -623,7 +623,7 @@ export function ShardedSwapInterface() {
                                   : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                               }`}
                             >
-                              {pool.dataSource === 'blockchain' ? '🟢 Live' : '⚠️ Cached'}
+                              {pool.dataSource === 'blockchain' ? '' : '⚠️ Cached'}
                             </span>
                           )}
                         </div>

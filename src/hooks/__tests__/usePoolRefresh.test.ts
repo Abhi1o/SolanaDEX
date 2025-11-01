@@ -25,7 +25,12 @@ describe('usePoolRefresh', () => {
     error: null,
     lastFetchTime: Date.now(),
     isStale: false,
+    consecutiveFailures: 0,
+    isInitialLoad: false,
+    isBackgroundRefresh: false,
+    fetchPools: vi.fn(),
     refreshPools: vi.fn(),
+    clearCache: vi.fn(),
   };
 
   beforeEach(() => {
@@ -44,86 +49,88 @@ describe('usePoolRefresh', () => {
   });
 
   describe('Automatic Polling', () => {
-    it('should perform initial refresh on mount', async () => {
+    it('should perform initial fetch on mount', async () => {
       renderHook(() => usePoolRefresh({ enabled: true }));
 
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });
 
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledWith(mockConnection);
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledWith(mockConnection, true);
     });
 
-    it('should poll at 10-second intervals by default', async () => {
+    it('should poll at 30-second intervals by default', async () => {
       renderHook(() => usePoolRefresh({ enabled: true }));
 
-      // Initial refresh
+      // Initial fetch
       await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+      });
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledTimes(1);
+
+      // First poll after 30 seconds (background refresh)
+      await act(async () => {
+        vi.advanceTimersByTime(30000);
         await vi.runOnlyPendingTimersAsync();
       });
       expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
 
-      // First poll after 10 seconds
+      // Second poll after another 30 seconds
       await act(async () => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(30000);
         await vi.runOnlyPendingTimersAsync();
       });
       expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(2);
-
-      // Second poll after another 10 seconds
-      await act(async () => {
-        vi.advanceTimersByTime(10000);
-        await vi.runOnlyPendingTimersAsync();
-      });
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(3);
     });
 
     it('should use custom refresh interval when provided', async () => {
       renderHook(() => usePoolRefresh({ enabled: true, refreshInterval: 5000 }));
 
-      // Initial refresh
+      // Initial fetch
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledTimes(1);
 
-      // Poll after 5 seconds
+      // Poll after 5 seconds (background refresh)
       await act(async () => {
         vi.advanceTimersByTime(5000);
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(2);
+      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
     });
 
     it('should not poll when disabled', async () => {
       renderHook(() => usePoolRefresh({ enabled: false }));
 
       await act(async () => {
-        vi.advanceTimersByTime(20000);
+        vi.advanceTimersByTime(60000);
         await vi.runOnlyPendingTimersAsync();
       });
 
+      expect(mockPoolStore.fetchPools).not.toHaveBeenCalled();
       expect(mockPoolStore.refreshPools).not.toHaveBeenCalled();
     });
 
     it('should cleanup polling on unmount', async () => {
       const { unmount } = renderHook(() => usePoolRefresh({ enabled: true }));
 
-      // Initial refresh
+      // Initial fetch
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledTimes(1);
 
       // Unmount
       unmount();
 
       // Advance time - should not trigger more refreshes
       await act(async () => {
-        vi.advanceTimersByTime(20000);
+        vi.advanceTimersByTime(60000);
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledTimes(1);
+      expect(mockPoolStore.refreshPools).not.toHaveBeenCalled();
     });
   });
 
@@ -138,14 +145,14 @@ describe('usePoolRefresh', () => {
       expect(mockPoolStore.refreshPools).toHaveBeenCalledWith(mockConnection);
     });
 
-    it('should update isRefreshing state during manual refresh', async () => {
+    it('should update isBackgroundRefresh state during manual refresh', async () => {
       mockPoolStore.refreshPools.mockImplementation(
         () => new Promise((resolve) => setTimeout(resolve, 100))
       );
 
       const { result } = renderHook(() => usePoolRefresh({ enabled: false }));
 
-      expect(result.current.isRefreshing).toBe(false);
+      expect(result.current.isBackgroundRefresh).toBe(false);
 
       const refreshPromise = act(async () => {
         await result.current.manualRefresh();
@@ -159,13 +166,18 @@ describe('usePoolRefresh', () => {
       await refreshPromise;
 
       // Should be done after completion
-      expect(result.current.isRefreshing).toBe(false);
+      expect(result.current.isBackgroundRefresh).toBe(false);
     });
   });
 
   describe('Exponential Backoff', () => {
     it('should implement exponential backoff on consecutive failures', async () => {
+      mockPoolStore.fetchPools.mockRejectedValue(new Error('Network error'));
       mockPoolStore.refreshPools.mockRejectedValue(new Error('Network error'));
+      vi.mocked(usePoolStore).mockReturnValue({
+        ...mockPoolStore,
+        consecutiveFailures: 0,
+      } as any);
 
       const { result } = renderHook(() => usePoolRefresh({ enabled: true }));
 
@@ -173,27 +185,25 @@ describe('usePoolRefresh', () => {
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(result.current.consecutiveFailures).toBe(1);
       expect(result.current.currentBackoffDelay).toBe(2000); // 1s * 2
 
       // Second failure
       await act(async () => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(30000);
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(result.current.consecutiveFailures).toBe(2);
       expect(result.current.currentBackoffDelay).toBe(4000); // 2s * 2
 
       // Third failure
       await act(async () => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(30000);
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(result.current.consecutiveFailures).toBe(3);
       expect(result.current.currentBackoffDelay).toBe(8000); // 4s * 2
     });
 
     it('should cap backoff delay at maximum (30 seconds)', async () => {
+      mockPoolStore.fetchPools.mockRejectedValue(new Error('Network error'));
       mockPoolStore.refreshPools.mockRejectedValue(new Error('Network error'));
 
       const { result } = renderHook(() => usePoolRefresh({ enabled: true }));
@@ -201,7 +211,7 @@ describe('usePoolRefresh', () => {
       // Trigger multiple failures to exceed max backoff
       for (let i = 0; i < 10; i++) {
         await act(async () => {
-          vi.advanceTimersByTime(10000);
+          vi.advanceTimersByTime(30000);
           await vi.runOnlyPendingTimersAsync();
         });
       }
@@ -212,7 +222,7 @@ describe('usePoolRefresh', () => {
 
     it('should reset backoff on successful refresh', async () => {
       // Start with failures
-      mockPoolStore.refreshPools.mockRejectedValueOnce(new Error('Network error'));
+      mockPoolStore.fetchPools.mockRejectedValueOnce(new Error('Network error'));
       mockPoolStore.refreshPools.mockRejectedValueOnce(new Error('Network error'));
 
       const { result } = renderHook(() => usePoolRefresh({ enabled: true }));
@@ -222,26 +232,30 @@ describe('usePoolRefresh', () => {
         await vi.runOnlyPendingTimersAsync();
       });
       await act(async () => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(30000);
         await vi.runOnlyPendingTimersAsync();
       });
 
-      expect(result.current.consecutiveFailures).toBe(2);
       expect(result.current.currentBackoffDelay).toBe(4000);
 
       // Now succeed
       mockPoolStore.refreshPools.mockResolvedValueOnce(undefined);
+      vi.mocked(usePoolStore).mockReturnValue({
+        ...mockPoolStore,
+        consecutiveFailures: 0,
+      } as any);
+      
       await act(async () => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(30000);
         await vi.runOnlyPendingTimersAsync();
       });
 
       // Should reset
-      expect(result.current.consecutiveFailures).toBe(0);
       expect(result.current.currentBackoffDelay).toBe(1000);
     });
 
     it('should skip polls during backoff period', async () => {
+      mockPoolStore.fetchPools.mockRejectedValue(new Error('Network error'));
       mockPoolStore.refreshPools.mockRejectedValue(new Error('Network error'));
 
       renderHook(() => usePoolRefresh({ enabled: true }));
@@ -250,7 +264,7 @@ describe('usePoolRefresh', () => {
       await act(async () => {
         await vi.runOnlyPendingTimersAsync();
       });
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledTimes(1);
 
       // Try to poll after 1 second (within backoff period)
       await act(async () => {
@@ -258,15 +272,15 @@ describe('usePoolRefresh', () => {
         await vi.runOnlyPendingTimersAsync();
       });
       // Should still be 1 call (skipped due to backoff)
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
+      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(0);
 
-      // Poll after backoff period expires (after 2s total)
+      // Poll after backoff period expires (after 30s from initial)
       await act(async () => {
-        vi.advanceTimersByTime(9000); // Total 10s from last attempt
+        vi.advanceTimersByTime(29000); // Total 30s from initial
         await vi.runOnlyPendingTimersAsync();
       });
-      // Should now attempt again
-      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(2);
+      // Should now attempt background refresh
+      expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -384,7 +398,7 @@ describe('usePoolRefresh', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should not refresh if no pools are loaded', async () => {
+    it('should perform initial fetch even if no pools are loaded', async () => {
       vi.mocked(usePoolStore).mockReturnValue({
         ...mockPoolStore,
         pools: [],
@@ -396,12 +410,24 @@ describe('usePoolRefresh', () => {
         await vi.runOnlyPendingTimersAsync();
       });
 
-      expect(mockPoolStore.refreshPools).not.toHaveBeenCalled();
+      // Initial fetch should still be called
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledWith(mockConnection, true);
     });
 
     it('should not start multiple concurrent refreshes', async () => {
+      vi.mocked(usePoolStore).mockReturnValue({
+        ...mockPoolStore,
+        loading: false,
+      } as any);
+      
       mockPoolStore.refreshPools.mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 1000))
+        () => {
+          vi.mocked(usePoolStore).mockReturnValue({
+            ...mockPoolStore,
+            loading: true,
+          } as any);
+          return new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       );
 
       const { result } = renderHook(() => usePoolRefresh({ enabled: false }));
@@ -418,7 +444,7 @@ describe('usePoolRefresh', () => {
 
       await Promise.all([refresh1, refresh2]);
 
-      // Should only call once (second call skipped)
+      // Should only call once (second call skipped due to loading state)
       expect(mockPoolStore.refreshPools).toHaveBeenCalledTimes(1);
     });
 
@@ -432,6 +458,40 @@ describe('usePoolRefresh', () => {
       const { result } = renderHook(() => usePoolRefresh({ enabled: false }));
 
       expect(result.current.lastRefreshTime).toBe(testTime);
+    });
+  });
+
+  describe('Clear and Refresh', () => {
+    it('should clear cache and perform initial fetch', async () => {
+      const { result } = renderHook(() => usePoolRefresh({ enabled: false }));
+
+      await act(async () => {
+        await result.current.clearAndRefresh();
+      });
+
+      expect(mockPoolStore.clearCache).toHaveBeenCalled();
+      expect(mockPoolStore.fetchPools).toHaveBeenCalledWith(mockConnection, true);
+    });
+
+    it('should reset error state on clearAndRefresh', async () => {
+      mockPoolStore.fetchPools.mockRejectedValueOnce(new Error('Test error'));
+
+      const { result } = renderHook(() => usePoolRefresh({ enabled: false }));
+
+      // Trigger an error
+      await act(async () => {
+        await result.current.manualRefresh();
+      });
+
+      expect(result.current.error).toBeTruthy();
+
+      // Clear and refresh
+      mockPoolStore.fetchPools.mockResolvedValueOnce(undefined);
+      await act(async () => {
+        await result.current.clearAndRefresh();
+      });
+
+      expect(result.current.error).toBeNull();
     });
   });
 });

@@ -1,13 +1,12 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { MagnifyingGlassIcon, FunnelIcon, ArrowsUpDownIcon, ChevronRightIcon, ArrowPathIcon, ClockIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, FunnelIcon, ArrowsUpDownIcon, ChevronRightIcon, ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { Pool } from '@/types';
 import { usePools } from '@/hooks/usePools';
 import { usePoolRefresh } from '@/hooks/usePoolRefresh';
 import { TokenLogo } from '@/components/tokens/TokenLogo';
 import { formatCurrency } from '@/utils/formatting';
-import { DataSourceBadge } from '@/components/ui/DataSourceBadge';
 
 interface PoolListProps {
   onPoolSelect?: (pool: Pool) => void;
@@ -29,15 +28,15 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
   
   // Integrate pool refresh hook for real-time blockchain data
   const { 
-    isRefreshing, 
-    isStale, 
+    isInitialLoad,
+    isBackgroundRefresh,
     manualRefresh, 
     error: refreshError,
     lastRefreshTime,
     consecutiveFailures 
   } = usePoolRefresh({
     enabled: true,
-    refreshInterval: 10000, // 10 seconds
+    refreshInterval: 30000, // 30 seconds
     onError: (err) => console.error('Pool refresh error:', err)
   });
   
@@ -151,8 +150,9 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
     };
   }, [pools]);
 
-  // Show loading skeleton only on initial load (when no pools are loaded yet)
-  if (loading && pools.length === 0) {
+  // Show loading skeleton only when initial load is in progress AND no pools are loaded yet
+  // Requirements: 3.1, 3.2, 3.3
+  if (isInitialLoad && pools.length === 0) {
     return (
       <div className="space-y-4">
         {/* Loading skeleton */}
@@ -192,10 +192,10 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
           <p className="text-gray-400 mb-6">{error}</p>
           <button
             onClick={manualRefresh}
-            disabled={isRefreshing}
+            disabled={isBackgroundRefresh}
             className="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-2xl transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isRefreshing ? (
+            {isBackgroundRefresh ? (
               <span className="flex items-center gap-2">
                 <ArrowPathIcon className="w-5 h-5 animate-spin" />
                 Retrying...
@@ -211,31 +211,30 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Error Banner - Show when there are errors but we have cached data (Requirement 1.4) */}
-      {refreshError && pools.length > 0 && consecutiveFailures > 2 && (
+      {/* Error Banner - Show only when error exists AND consecutiveFailures >= 3 (Requirements: 6.2, 6.3) */}
+      {refreshError && consecutiveFailures >= 3 && (
         <div className="backdrop-blur-xl bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
           <div className="flex items-start gap-3">
             <ExclamationTriangleIcon className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <div className="text-sm font-semibold text-red-300 mb-1">
-                Blockchain Connection Lost
+                Connection Issue
               </div>
               <div className="text-xs text-red-200/80 mb-3">
-                Unable to fetch live data from the blockchain. Displaying cached pool information. 
-                {consecutiveFailures > 0 && ` (${consecutiveFailures} failed attempts)`}
+                Unable to fetch live pool data. Displaying cached information.
               </div>
               <button
                 onClick={manualRefresh}
-                disabled={isRefreshing}
+                disabled={isBackgroundRefresh}
                 className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 rounded-lg text-red-200 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isRefreshing ? (
+                {isBackgroundRefresh ? (
                   <span className="flex items-center gap-2">
                     <ArrowPathIcon className="w-4 h-4 animate-spin" />
                     Retrying...
                   </span>
                 ) : (
-                  'Retry Connection'
+                  'Retry'
                 )}
               </button>
             </div>
@@ -251,43 +250,17 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
               {poolStats.totalPools} pools • {poolStats.activePools} active
             </p>
           </div>
-          
-          {/* Error indicator */}
-          {refreshError && consecutiveFailures > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/30">
-              <ExclamationTriangleIcon className="w-3 h-3 text-red-400" />
-              <span className="text-xs text-red-400">
-                {consecutiveFailures > 3 ? 'Using cached data' : 'Connection issue'}
-              </span>
-            </div>
-          )}
-          
-          {/* Staleness indicator */}
-          {isStale && !isRefreshing && !refreshError && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30">
-              <ClockIcon className="w-3 h-3 text-yellow-400" />
-              <span className="text-xs text-yellow-400">Data may be stale</span>
-            </div>
-          )}
-          
-          {/* Refreshing indicator */}
-          {isRefreshing && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
-              <ArrowPathIcon className="w-3 h-3 text-blue-400 animate-spin" />
-              <span className="text-xs text-blue-400">Updating...</span>
-            </div>
-          )}
         </div>
         
         <div className="flex items-center gap-2">
           {/* Manual refresh button */}
           <button
             onClick={manualRefresh}
-            disabled={isRefreshing}
+            disabled={isBackgroundRefresh}
             className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl hover:bg-white/10 hover:border-white/20 text-white transition-all touch-manipulation text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             title="Refresh pool data"
           >
-            <ArrowPathIcon className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <ArrowPathIcon className={`w-4 h-4 ${isBackgroundRefresh ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
           
@@ -420,7 +393,6 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
               key={pool.id}
               pool={pool}
               onClick={() => onPoolSelect?.(pool)}
-              isRefreshing={isRefreshing}
             />
           ))
         )}
@@ -432,10 +404,9 @@ export function PoolList({ onPoolSelect, showCreateButton = true, onCreatePool }
 interface PoolCardProps {
   pool: Pool;
   onClick?: () => void;
-  isRefreshing?: boolean;
 }
 
-const PoolCard = React.memo(({ pool, onClick, isRefreshing = false }: PoolCardProps) => {
+const PoolCard = React.memo(({ pool, onClick }: PoolCardProps) => {
   const liquidityValue = useMemo(() => Number(pool.totalLiquidity) / 1e9, [pool.totalLiquidity]);
   const volume24h = useMemo(() => Number(pool.volume24h) / 1e9, [pool.volume24h]);
   const fees24h = useMemo(() => Number(pool.fees24h) / 1e9, [pool.fees24h]);
@@ -444,7 +415,7 @@ const PoolCard = React.memo(({ pool, onClick, isRefreshing = false }: PoolCardPr
     <div
       className={`backdrop-blur-xl bg-white/5 border border-white/10 rounded-3xl p-3 sm:p-4 transition-all ${
         onClick ? 'hover:bg-white/10 hover:border-white/20 hover:scale-[1.02] cursor-pointer touch-manipulation' : ''
-      } ${isRefreshing ? 'opacity-70' : ''}`}
+      }`}
       onClick={onClick}
     >
       {/* Mobile Layout */}
@@ -459,14 +430,8 @@ const PoolCard = React.memo(({ pool, onClick, isRefreshing = false }: PoolCardPr
               <div className="font-semibold text-white text-sm">
                 {pool.tokenA.symbol}/{pool.tokenB.symbol}
               </div>
-              <div className="text-xs text-gray-400 flex items-center gap-2">
-                <span>{pool.ammType.replace('_', ' ')} • {pool.feeRate}% fee</span>
-                <DataSourceBadge 
-                  dataSource={pool.dataSource || 'config'} 
-                  error={pool.blockchainFetchError}
-                  size="sm"
-                  showLabel={false}
-                />
+              <div className="text-xs text-gray-400">
+                {pool.ammType.replace('_', ' ')} • {pool.feeRate}% fee
               </div>
             </div>
           </div>
@@ -506,14 +471,8 @@ const PoolCard = React.memo(({ pool, onClick, isRefreshing = false }: PoolCardPr
               <TokenLogo token={pool.tokenB} size="md" />
             </div>
             <div>
-              <div className="font-semibold text-white flex items-center gap-2">
-                <span>{pool.tokenA.symbol}/{pool.tokenB.symbol}</span>
-                <DataSourceBadge 
-                  dataSource={pool.dataSource || 'config'} 
-                  error={pool.blockchainFetchError}
-                  size="sm"
-                  showLabel={true}
-                />
+              <div className="font-semibold text-white">
+                {pool.tokenA.symbol}/{pool.tokenB.symbol}
               </div>
               <div className="text-sm text-gray-400">
                 {pool.ammType.replace('_', ' ')} • {pool.feeRate}% fee

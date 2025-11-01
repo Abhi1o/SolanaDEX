@@ -17,6 +17,12 @@
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Pool } from '@/types';
+import { 
+  fetchWithTimeout, 
+  fetchWithRetry, 
+  createPoolFetchError,
+  PoolFetchError 
+} from '@/utils/fetchUtils';
 
 /**
  * Pool account data structure from blockchain
@@ -85,28 +91,38 @@ export async function fetchPoolReserves(
   console.log(`   Token A Account: ${tokenAAccount.toBase58()}`);
   console.log(`   Token B Account: ${tokenBAccount.toBase58()}`);
 
-  try {
-    // Fetch both token account balances in parallel
-    const [tokenAccountAInfo, tokenAccountBInfo] = await Promise.all([
-      connection.getTokenAccountBalance(tokenAAccount),
-      connection.getTokenAccountBalance(tokenBAccount)
-    ]);
+  // Wrap the fetch operation with retry logic
+  return fetchWithRetry(
+    async () => {
+      try {
+        // Fetch both token account balances in parallel with timeout
+        const [tokenAccountAInfo, tokenAccountBInfo] = await Promise.all([
+          fetchWithTimeout(connection.getTokenAccountBalance(tokenAAccount), 5000),
+          fetchWithTimeout(connection.getTokenAccountBalance(tokenBAccount), 5000)
+        ]);
 
-    // Parse balances as bigint
-    const reserveA = BigInt(tokenAccountAInfo.value.amount);
-    const reserveB = BigInt(tokenAccountBInfo.value.amount);
+        // Parse balances as bigint
+        const reserveA = BigInt(tokenAccountAInfo.value.amount);
+        const reserveB = BigInt(tokenAccountBInfo.value.amount);
 
-    console.log('✅ Pool reserves fetched successfully');
-    console.log(`   Reserve A: ${reserveA.toString()} (${tokenAccountAInfo.value.uiAmountString || 'N/A'} UI)`);
-    console.log(`   Reserve B: ${reserveB.toString()} (${tokenAccountBInfo.value.uiAmountString || 'N/A'} UI)`);
+        console.log('✅ Pool reserves fetched successfully');
+        console.log(`   Reserve A: ${reserveA.toString()} (${tokenAccountAInfo.value.uiAmountString || 'N/A'} UI)`);
+        console.log(`   Reserve B: ${reserveB.toString()} (${tokenAccountBInfo.value.uiAmountString || 'N/A'} UI)`);
 
-    return { reserveA, reserveB };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Failed to fetch pool reserves');
-    console.error(`   Error: ${errorMessage}`);
-    throw new Error(`Failed to fetch pool reserves: ${errorMessage}`);
-  }
+        return { reserveA, reserveB };
+      } catch (error) {
+        console.error('❌ Failed to fetch pool reserves');
+        console.error(`   Token A Account: ${tokenAAccount.toBase58()}`);
+        console.error(`   Token B Account: ${tokenBAccount.toBase58()}`);
+        console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
+        
+        // Create detailed error with classification
+        const poolError = createPoolFetchError(error);
+        throw poolError;
+      }
+    },
+    { maxRetries: 3, baseDelay: 1000, maxDelay: 30000, multiplier: 2, timeoutMs: 5000 }
+  );
 }
 
 /**
@@ -127,23 +143,32 @@ export async function fetchLPTokenSupply(
   console.log('🔍 Fetching LP token supply');
   console.log(`   LP Token Mint: ${lpTokenMint.toBase58()}`);
 
-  try {
-    // Fetch mint account info
-    const mintInfo = await connection.getTokenSupply(lpTokenMint);
+  // Wrap the fetch operation with retry logic
+  return fetchWithRetry(
+    async () => {
+      try {
+        // Fetch mint account info with timeout
+        const mintInfo = await fetchWithTimeout(connection.getTokenSupply(lpTokenMint), 5000);
 
-    // Parse supply as bigint
-    const supply = BigInt(mintInfo.value.amount);
+        // Parse supply as bigint
+        const supply = BigInt(mintInfo.value.amount);
 
-    console.log('✅ LP token supply fetched successfully');
-    console.log(`   Supply: ${supply.toString()} (${mintInfo.value.uiAmountString || 'N/A'} UI)`);
+        console.log('✅ LP token supply fetched successfully');
+        console.log(`   Supply: ${supply.toString()} (${mintInfo.value.uiAmountString || 'N/A'} UI)`);
 
-    return supply;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Failed to fetch LP token supply');
-    console.error(`   Error: ${errorMessage}`);
-    throw new Error(`Failed to fetch LP token supply: ${errorMessage}`);
-  }
+        return supply;
+      } catch (error) {
+        console.error('❌ Failed to fetch LP token supply');
+        console.error(`   LP Token Mint: ${lpTokenMint.toBase58()}`);
+        console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
+        
+        // Create detailed error with classification
+        const poolError = createPoolFetchError(error);
+        throw poolError;
+      }
+    },
+    { maxRetries: 3, baseDelay: 1000, maxDelay: 30000, multiplier: 2, timeoutMs: 5000 }
+  );
 }
 
 /**
@@ -205,10 +230,14 @@ export async function fetchPoolAccountData(
       return null;
     }
 
-    // Other errors should be thrown
+    // Other errors should be thrown with detailed information
     console.error('❌ Failed to fetch pool account data');
+    console.error(`   Pool Address: ${poolAddress.toBase58()}`);
     console.error(`   Error: ${errorMessage}`);
-    throw error;
+    
+    // Create detailed error with pool address
+    const poolError = createPoolFetchError(error, poolAddress.toBase58());
+    throw poolError;
   }
 }
 
@@ -219,13 +248,13 @@ export async function fetchPoolAccountData(
  * real-time blockchain data. This updates reserves, LP supply, and other
  * dynamic fields while preserving static configuration data.
  * 
- * If blockchain fetch fails, the original pool object is returned unchanged
- * with a warning logged. This ensures the application continues to function
- * with cached/config data even if RPC is unavailable.
+ * This function throws errors instead of falling back to config data,
+ * allowing the store to handle error recovery and caching appropriately.
  * 
  * @param connection - Solana connection instance
  * @param pool - Pool object to enrich
  * @returns Promise resolving to enriched pool object
+ * @throws Error if blockchain data cannot be fetched
  */
 export async function enrichPoolWithBlockchainData(
   connection: Connection,
@@ -245,10 +274,13 @@ export async function enrichPoolWithBlockchainData(
       pool.lpTokenMint
     );
 
-    // If account not found, return original pool
+    // If account not found, throw error with details
     if (!accountData) {
-      console.warn('⚠️  Pool account not found, using config data');
-      return pool;
+      console.error('❌ Pool account not found');
+      throw createPoolFetchError(
+        new Error(`Pool account not found: ${pool.id}`),
+        pool.id
+      );
     }
 
     // Calculate total liquidity (sum of both reserves in base units)
@@ -264,10 +296,11 @@ export async function enrichPoolWithBlockchainData(
       feeRate: accountData.feeRate,
       isActive: accountData.isActive,
       lastUpdated: accountData.lastUpdated,
-      // Add data source tracking
+      // Add data source tracking (Requirement 5.1, 5.5)
       dataSource: 'blockchain' as const,
       lastBlockchainFetch: accountData.lastUpdated,
-      blockchainFetchError: null
+      blockchainFetchError: null,
+      isFresh: true // Mark as fresh on successful fetch
     };
 
     console.log('✅ Pool enriched with blockchain data');
@@ -279,18 +312,14 @@ export async function enrichPoolWithBlockchainData(
 
     return enrichedPool;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Failed to enrich pool with blockchain data');
-    console.error(`   Error: ${errorMessage}`);
-    console.warn('⚠️  Falling back to config data');
-
-    // Return original pool with error tracking
-    return {
-      ...pool,
-      dataSource: 'config' as const,
-      lastBlockchainFetch: Date.now(),
-      blockchainFetchError: errorMessage
-    };
+    console.error(`   Pool: ${pool.tokenA.symbol}/${pool.tokenB.symbol}`);
+    console.error(`   Pool Address: ${pool.id}`);
+    console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
+    
+    // Create detailed error with pool address and classification
+    const poolError = createPoolFetchError(error, pool.id);
+    throw poolError;
   }
 }
 
