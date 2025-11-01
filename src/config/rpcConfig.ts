@@ -61,7 +61,6 @@ export const CONSERVATIVE_RPC_CONFIG: RpcPollingConfig = {
  * Get the appropriate RPC configuration based on environment
  */
 export function getRpcConfig(): RpcPollingConfig {
-  const env = process.env.NODE_ENV;
   const rpcMode = process.env.NEXT_PUBLIC_RPC_MODE;
 
   // Allow manual override via environment variable
@@ -73,12 +72,12 @@ export function getRpcConfig(): RpcPollingConfig {
     return DEVELOPMENT_RPC_CONFIG;
   }
 
-  // Default to production config for production and staging
-  if (env === 'production' || env === 'staging') {
+  // Default to production config (rpcMode === 'production' or not set)
+  if (rpcMode === 'production' || !rpcMode) {
     return PRODUCTION_RPC_CONFIG;
   }
 
-  // Development environment
+  // Fallback to development
   return DEVELOPMENT_RPC_CONFIG;
 }
 

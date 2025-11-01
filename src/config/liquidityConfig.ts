@@ -60,7 +60,6 @@ export const CONSERVATIVE_LIQUIDITY_CONFIG: LiquidityPageConfig = {
  * Get liquidity page configuration based on environment
  */
 export function getLiquidityConfig(): LiquidityPageConfig {
-  const env = process.env.NODE_ENV;
   const rpcMode = process.env.NEXT_PUBLIC_RPC_MODE;
 
   // Allow manual override via environment variable
@@ -72,12 +71,12 @@ export function getLiquidityConfig(): LiquidityPageConfig {
     return DEVELOPMENT_LIQUIDITY_CONFIG;
   }
 
-  // Default to production config for production and staging
-  if (env === 'production' || env === 'staging') {
+  // Default to production config (rpcMode === 'production' or not set)
+  if (rpcMode === 'production' || !rpcMode) {
     return PRODUCTION_LIQUIDITY_CONFIG;
   }
 
-  // Development environment
+  // Fallback to development
   return DEVELOPMENT_LIQUIDITY_CONFIG;
 }
 
