@@ -109,16 +109,50 @@ export class SammRouterService {
   private timeout: number = 5000; // 5 second timeout
 
   /**
+   * Normalizes a URL to use HTTPS when in a secure (HTTPS) context
+   * This prevents mixed content errors in production environments
+   * @param url - The URL to normalize
+   * @returns The normalized URL with HTTPS if needed
+   */
+  private normalizeUrl(url: string): string {
+    // Check if we're in a browser environment and the current page is HTTPS
+    const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    
+    // If we're in a secure context and the URL is HTTP, convert it to HTTPS
+    if (isSecureContext && url.startsWith('http://')) {
+      const normalizedUrl = url.replace('http://', 'https://');
+      console.warn(
+        '[SammRouterService] Detected HTTP URL in HTTPS context. ' +
+        `Converting ${url} to ${normalizedUrl} to prevent mixed content errors.`
+      );
+      return normalizedUrl;
+    }
+    
+    return url;
+  }
+
+  /**
    * Creates a new SammRouterService instance
    * @param baseUrl - Optional base URL for the API. Falls back to environment variable or default.
    */
   constructor(baseUrl?: string) {
-    this.baseUrl = 
+    const rawUrl = 
       baseUrl || 
       process.env.NEXT_PUBLIC_SAMM_ROUTER_API_URL || 
-      'http://saigreen.cloud:3000';
+      'https://saigreen.cloud:3000';
+    
+    // Normalize the URL to use HTTPS in production/secure contexts
+    this.baseUrl = this.normalizeUrl(rawUrl);
     
     console.log('[SammRouterService] Initialized with base URL:', this.baseUrl);
+    
+    // Warn if we detect HTTP in production (should be caught by normalizeUrl, but extra safety)
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && this.baseUrl.startsWith('http://')) {
+      console.error(
+        '[SammRouterService] WARNING: HTTP URL detected in HTTPS context. ' +
+        'This will cause mixed content errors. Please use HTTPS URL or set NEXT_PUBLIC_SAMM_ROUTER_API_URL to HTTPS.'
+      );
+    }
   }
 
   /**

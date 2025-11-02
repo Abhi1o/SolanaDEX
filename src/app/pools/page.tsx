@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MotionFadeIn, MotionReveal, MotionStagger } from '@/components/animations';
 import { AnimatedStat } from '@/components/ui/AnimatedStat';
 import { motion } from 'framer-motion';
@@ -11,13 +11,13 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   ArrowPathIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import dexConfig from '@/config/dex-config.json';
 import { TokenPairIcon } from '@/components/tokens/TokenIcon';
-import { useSolanaConnection } from '@/hooks/useSolanaConnection';
-import { loadPoolsFromBlockchain } from '@/lib/solana/poolLoader';
-import { Pool } from '@/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { usePoolStore } from '@/stores/poolStore';
+import { usePoolRefresh } from '@/hooks/usePoolRefresh';
 
 interface PoolData {
   poolAddress: string;
@@ -73,46 +73,20 @@ export default function PoolsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPair, setSelectedPair] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
-  const [pools, setPools] = useState<Pool[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefreshTime, setLastRefreshTime] = useState(0);
   
-  const { connection } = useSolanaConnection();
-
-  const fetchPools = useCallback(async () => {
-    if (!connection) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      console.log('🔄 Fetching pools from blockchain...');
-      const fetchedPools = await loadPoolsFromBlockchain(connection);
-      setPools(fetchedPools);
-      setLastRefreshTime(Date.now());
-      console.log(`✅ Fetched ${fetchedPools.length} pools`);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch pools';
-      console.error('❌ Failed to fetch pools:', errorMessage);
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [connection]);
-
-  useEffect(() => {
-    fetchPools();
-  }, [fetchPools]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing pools...');
-      fetchPools();
-    }, 45000);
-
-    return () => clearInterval(interval);
-  }, [fetchPools]);
+  // Use centralized pool store and refresh hook
+  const { pools } = usePoolStore();
+  const { 
+    isInitialLoad,
+    isBackgroundRefresh,
+    lastRefreshTime,
+    manualRefresh,
+    clearAndRefresh,
+    consecutiveFailures 
+  } = usePoolRefresh({
+    enabled: true,
+    refreshInterval: 30000, // 30 seconds
+  });
 
   const poolsData = useMemo(() => {
     return pools.map(pool => {
@@ -219,45 +193,70 @@ export default function PoolsPage() {
               transition={{ duration: 0.6, delay: 0.2, ease: [0.25, 0.4, 0.25, 1] }}
               className="flex flex-col items-center gap-3 mt-6"
             >
-              <button
-                onClick={fetchPools}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                <span className="text-sm">{loading ? 'Refreshing...' : 'Refresh Pools'}</span>
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={manualRefresh}
+                  disabled={isBackgroundRefresh}
+                  className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ArrowPathIcon className={`w-4 h-4 ${isBackgroundRefresh ? 'animate-spin' : ''}`} />
+                  <span className="text-sm">Refresh Pools</span>
+                </button>
 
-              {!loading && lastRefreshTime > 0 && (
+                <button
+                  onClick={clearAndRefresh}
+                  disabled={isBackgroundRefresh}
+                  className="flex items-center gap-2 px-4 py-2 backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl hover:bg-red-500/20 hover:border-red-500/30 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Clear cache and refresh"
+                >
+                  <span className="text-sm">Clear Cache</span>
+                </button>
+              </div>
+
+              {lastRefreshTime > 0 && (
                 <div className="text-xs text-gray-400">
                   Last updated: {formatRelativeTime(lastRefreshTime)}
-                  <span className="text-gray-500 ml-2">• Auto-refreshes every 45s</span>
+                  <span className="text-gray-500 ml-2">• Auto-refreshes every 30s</span>
                 </div>
               )}
             </motion.div>
           </div>
         </MotionFadeIn>
 
-        {loading && pools.length === 0 && (
+        {isInitialLoad && pools.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 mb-12">
             <LoadingSpinner size="lg" />
-            <p className="text-gray-400 mt-4">Fetching pool data from blockchain...</p>
+            <p className="text-gray-400 mt-4">Loading pool data...</p>
           </div>
         )}
 
-        {error && !loading && (
+        {consecutiveFailures >= 3 && pools.length === 0 && (
           <div className="mb-8 backdrop-blur-xl bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
             <div className="flex items-start gap-3">
-              <BeakerIcon className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold text-red-300 mb-1">Failed to Load Pools</h3>
-                <p className="text-sm text-gray-300">{error}</p>
+              <ExclamationTriangleIcon className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-red-300 mb-1">Connection Issue</h3>
+                <p className="text-sm text-gray-300 mb-3">Unable to fetch pool data. Displaying cached information.</p>
+                <button
+                  onClick={manualRefresh}
+                  disabled={isBackgroundRefresh}
+                  className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 rounded-lg text-red-200 text-xs font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isBackgroundRefresh ? (
+                    <span className="flex items-center gap-2">
+                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                      Retrying...
+                    </span>
+                  ) : (
+                    'Retry'
+                  )}
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {!loading && pools.length > 0 && (
+        {pools.length > 0 && (
           <>
             <MotionStagger staggerDelay={0.1}>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">

@@ -98,8 +98,8 @@ export async function fetchPoolReserves(
       try {
         // Fetch both token account balances with throttling and timeout
         const [tokenAccountAInfo, tokenAccountBInfo] = await Promise.all([
-          throttledRpcCall(() => fetchWithTimeout(connection.getTokenAccountBalance(tokenAAccount), 5000)),
-          throttledRpcCall(() => fetchWithTimeout(connection.getTokenAccountBalance(tokenBAccount), 5000))
+          throttledRpcCall(() => fetchWithTimeout(connection.getTokenAccountBalance(tokenAAccount), 10000)),
+          throttledRpcCall(() => fetchWithTimeout(connection.getTokenAccountBalance(tokenBAccount), 10000))
         ]);
 
         // Parse balances as bigint
@@ -122,7 +122,7 @@ export async function fetchPoolReserves(
         throw poolError;
       }
     },
-    { maxRetries: 3, baseDelay: 1000, maxDelay: 30000, multiplier: 2, timeoutMs: 5000 }
+    { maxRetries: 3, baseDelay: 1000, maxDelay: 30000, multiplier: 2, timeoutMs: 10000 }
   );
 }
 
@@ -150,7 +150,7 @@ export async function fetchLPTokenSupply(
       try {
         // Fetch mint account info with throttling and timeout
         const mintInfo = await throttledRpcCall(() => 
-          fetchWithTimeout(connection.getTokenSupply(lpTokenMint), 5000)
+          fetchWithTimeout(connection.getTokenSupply(lpTokenMint), 10000)
         );
 
         // Parse supply as bigint
@@ -170,7 +170,7 @@ export async function fetchLPTokenSupply(
         throw poolError;
       }
     },
-    { maxRetries: 3, baseDelay: 1000, maxDelay: 30000, multiplier: 2, timeoutMs: 5000 }
+    { maxRetries: 3, baseDelay: 1000, maxDelay: 30000, multiplier: 2, timeoutMs: 10000 }
   );
 }
 

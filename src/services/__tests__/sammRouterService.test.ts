@@ -83,7 +83,7 @@ describe('SammRouterService', () => {
       
       expect(console.log).toHaveBeenCalledWith(
         '[SammRouterService] Initialized with base URL:',
-        'http://saigreen.cloud:3000'
+        'https://saigreen.cloud:3000'
       );
       
       process.env.NEXT_PUBLIC_SAMM_ROUTER_API_URL = originalEnv;
